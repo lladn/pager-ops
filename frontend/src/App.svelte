@@ -1,79 +1,81 @@
 <script>
-  import logo from './assets/images/logo-universal.png'
-  import {Greet} from '../wailsjs/go/main/App.js'
-
-  let resultText = "Please enter your name below 👇"
-  let name
-
-  function greet() {
-    Greet(name).then(result => resultText = result)
+  import Settings from './components/Settings.svelte';
+  import IncidentsPanel from './components/IncidentsPanel.svelte';
+  
+  let showSettings = false;
+  
+  function toggleSettings() {
+    showSettings = !showSettings;
   }
 </script>
 
 <main>
-  <img alt="Wails logo" id="logo" src="{logo}">
-  <div class="result" id="result">{resultText}</div>
-  <div class="input-box" id="input">
-    <input autocomplete="off" bind:value={name} class="input" id="name" type="text"/>
-    <button class="btn" on:click={greet}>Greet</button>
+  <div class="app-header">
+    <h1>PagerOps</h1>
+    <button class="settings-btn" on:click={toggleSettings}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 1v6m0 6v6m4.22-13.22l4.24 4.24M1.54 1.54l4.24 4.24M20.46 20.46l-4.24-4.24M1.54 20.46l4.24-4.24M23 12h-6m-6 0H1"></path>
+      </svg>
+    </button>
   </div>
+  
+  <div class="app-content">
+    <IncidentsPanel />
+  </div>
+  
+  <Settings bind:isOpen={showSettings} />
 </main>
 
 <style>
-
-  #logo {
-    display: block;
-    width: 50%;
-    height: 50%;
-    margin: auto;
-    padding: 10% 0 0;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-origin: content-box;
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   }
 
-  .result {
-    height: 20px;
-    line-height: 20px;
-    margin: 1.5rem auto;
+  main {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #1a1a1a;
   }
 
-  .input-box .btn {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    border-radius: 3px;
+  .app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #111;
+    border-bottom: 1px solid #333;
+  }
+
+  .app-header h1 {
+    margin: 0;
+    color: #fff;
+    font-size: 20px;
+  }
+
+  .settings-btn {
+    background: none;
     border: none;
-    margin: 0 0 0 20px;
-    padding: 0 8px;
+    color: #999;
     cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .input-box .btn:hover {
-    background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-    color: #333333;
+  .settings-btn:hover {
+    background: #333;
+    color: #fff;
   }
 
-  .input-box .input {
-    border: none;
-    border-radius: 3px;
-    outline: none;
-    height: 30px;
-    line-height: 30px;
-    padding: 0 10px;
-    background-color: rgba(240, 240, 240, 1);
-    -webkit-font-smoothing: antialiased;
+  .app-content {
+    flex: 1;
+    overflow: hidden;
   }
-
-  .input-box .input:hover {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
-  }
-
-  .input-box .input:focus {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
-  }
-
 </style>
