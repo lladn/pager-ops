@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, SetSelectedServices } from '../../wailsjs/go/main/App.js';
-  import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime.js';
+  import { EventsOn, EventsOff, BrowserOpenURL, LogDebug } from '../../wailsjs/runtime/runtime.js';
 
   let activeTab = 'open';
   let incidents = [];
@@ -10,11 +10,16 @@
   let selectedServices = new Set();
   let showServiceDropdown = false;
   let loading = false;
+  let dropdownRef;
 
   onMount(async () => {
+    LogDebug("IncidentsPanel mounted");
+    
     // Load services configuration
     try {
       servicesConfig = await GetServicesConfig();
+      LogDebug(`Services config loaded: ${JSON.stringify(servicesConfig)}`);
+      
       // Initialize all services as selected
       if (servicesConfig && servicesConfig.services) {
         servicesConfig.services.forEach(service => {
@@ -24,6 +29,7 @@
         updateSelectedServicesBackend();
       }
     } catch (err) {
+      LogDebug(`No services configuration found: ${err}`);
       console.log('No services configuration found');
     }
 
@@ -32,28 +38,55 @@
 
     // Listen for incident updates
     EventsOn('incidents-updated', (type) => {
+      LogDebug(`Incidents update event received: ${type}`);
       if (type === 'open' && activeTab === 'open') {
         loadIncidents();
       }
     });
+
+    // Add click outside handler
+    document.addEventListener('click', handleClickOutside);
+    document.addEventListener('mousedown', logMouseEvent);
+    document.addEventListener('mouseup', logMouseEvent);
   });
 
   onDestroy(() => {
     EventsOff('incidents-updated');
+    document.removeEventListener('click', handleClickOutside);
+    document.removeEventListener('mousedown', logMouseEvent);
+    document.removeEventListener('mouseup', logMouseEvent);
   });
 
+  function logMouseEvent(event) {
+    const target = event.target;
+    const classList = target.classList ? Array.from(target.classList).join(', ') : 'no-classes';
+    LogDebug(`Mouse ${event.type} on element: ${target.tagName}, classes: ${classList}, id: ${target.id || 'no-id'}`);
+    console.log(`Mouse ${event.type}:`, target);
+  }
+
+  function handleClickOutside(event) {
+    if (dropdownRef && !dropdownRef.contains(event.target)) {
+      showServiceDropdown = false;
+    }
+  }
+
   async function loadIncidents() {
+    LogDebug(`Loading incidents for tab: ${activeTab}`);
     loading = true;
     try {
       if (activeTab === 'open') {
         incidents = await GetOpenIncidents();
+        LogDebug(`Loaded ${incidents.length} open incidents`);
       } else {
         incidents = await GetResolvedIncidents();
+        LogDebug(`Loaded ${incidents.length} resolved incidents`);
       }
       filterIncidents();
     } catch (err) {
+      LogDebug(`Failed to load incidents: ${err}`);
       console.error('Failed to load incidents:', err);
       incidents = [];
+      filteredIncidents = [];
     }
     loading = false;
   }
@@ -61,6 +94,7 @@
   function filterIncidents() {
     if (!servicesConfig || selectedServices.size === 0) {
       filteredIncidents = incidents;
+      LogDebug(`No filter applied, showing all ${incidents.length} incidents`);
       return;
     }
 
@@ -79,9 +113,11 @@
     filteredIncidents = incidents.filter(incident => 
       selectedServiceIds.has(incident.ServiceID)
     );
+    LogDebug(`Filtered to ${filteredIncidents.length} incidents from ${incidents.length} total`);
   }
 
   function toggleService(serviceName) {
+    LogDebug(`Toggling service: ${serviceName}`);
     if (selectedServices.has(serviceName)) {
       selectedServices.delete(serviceName);
     } else {
@@ -106,12 +142,24 @@
       }
     });
     
+    LogDebug(`Updating selected services in backend: ${serviceIds.join(', ')}`);
     await SetSelectedServices(serviceIds);
   }
 
   function switchTab(tab) {
+    LogDebug(`Switching to tab: ${tab}`);
+    console.log('Tab switch clicked:', tab);
     activeTab = tab;
     loadIncidents();
+  }
+
+  function toggleDropdown(event) {
+    LogDebug(`Dropdown toggle clicked, current state: ${showServiceDropdown}`);
+    console.log('Dropdown toggle clicked');
+    event.stopPropagation();
+    event.preventDefault();
+    showServiceDropdown = !showServiceDropdown;
+    LogDebug(`Dropdown new state: ${showServiceDropdown}`);
   }
 
   function formatDate(dateString) {
@@ -128,33 +176,58 @@
     }
   }
 
-  function openIncident(url) {
-    window.open(url, '_blank');
+  async function openIncident(url) {
+    LogDebug(`Opening incident URL: ${url}`);
+    console.log('Opening URL:', url);
+    try {
+      await BrowserOpenURL(url);
+      LogDebug(`Successfully opened URL`);
+    } catch (err) {
+      LogDebug(`Failed to open URL: ${err}`);
+      console.error('Failed to open incident URL:', err);
+    }
+  }
+
+  function handleTabClick(tab) {
+    LogDebug(`Tab clicked: ${tab}`);
+    console.log('Tab clicked:', tab);
+    switchTab(tab);
+  }
+
+  function handleIncidentClick(incident) {
+    LogDebug(`Incident clicked: #${incident.IncidentNumber}`);
+    console.log('Incident clicked:', incident);
+    openIncident(incident.HTMLURL);
   }
 </script>
 
-<div class="incidents-panel">
-  <div class="panel-header">
+<div class="incidents-panel" style="--wails-draggable: no-drag;">
+  <div class="panel-header" style="--wails-draggable: no-drag;">
     <h2>Incidents</h2>
     
-    <div class="controls">
-      <div class="service-selector">
+    <div class="controls" style="--wails-draggable: no-drag;">
+      <div class="service-selector" bind:this={dropdownRef} style="--wails-draggable: no-drag;">
         <button 
           class="service-dropdown-btn" 
-          on:click={() => showServiceDropdown = !showServiceDropdown}>
+          on:click={toggleDropdown}
+          on:mousedown|preventDefault|stopPropagation
+          on:mouseup|preventDefault|stopPropagation
+          type="button"
+          style="--wails-draggable: no-drag;">
           Services ({selectedServices.size})
           <span class="dropdown-arrow">▼</span>
         </button>
         
         {#if showServiceDropdown}
-          <div class="service-dropdown">
+          <div class="service-dropdown" style="--wails-draggable: no-drag;">
             {#if servicesConfig && servicesConfig.services}
               {#each servicesConfig.services as service}
-                <label class="service-option">
+                <label class="service-option" style="--wails-draggable: no-drag;">
                   <input 
                     type="checkbox" 
                     checked={selectedServices.has(service.name)}
                     on:change={() => toggleService(service.name)}
+                    style="--wails-draggable: no-drag;"
                   />
                   <span>{service.name}</span>
                 </label>
@@ -166,29 +239,45 @@
         {/if}
       </div>
       
-      <div class="tabs">
+      <div class="tabs" style="--wails-draggable: no-drag;">
         <button 
           class="tab {activeTab === 'open' ? 'active' : ''}" 
-          on:click={() => switchTab('open')}>
+          on:click={() => handleTabClick('open')}
+          on:mousedown|preventDefault|stopPropagation
+          on:mouseup|preventDefault|stopPropagation
+          type="button"
+          style="--wails-draggable: no-drag;">
           Open Incidents
         </button>
         <button 
           class="tab {activeTab === 'resolved' ? 'active' : ''}" 
-          on:click={() => switchTab('resolved')}>
+          on:click={() => handleTabClick('resolved')}
+          on:mousedown|preventDefault|stopPropagation
+          on:mouseup|preventDefault|stopPropagation
+          type="button"
+          style="--wails-draggable: no-drag;">
           Resolved
         </button>
       </div>
     </div>
   </div>
 
-  <div class="incidents-list">
+  <div class="incidents-list" style="--wails-draggable: no-drag;">
     {#if loading}
       <div class="loading">Loading incidents...</div>
     {:else if filteredIncidents.length === 0}
       <div class="no-incidents">No incidents found</div>
     {:else}
       {#each filteredIncidents as incident}
-        <button class="incident-card" on:click={() => openIncident(incident.HTMLURL)}>
+        <div 
+          class="incident-card" 
+          on:click={() => handleIncidentClick(incident)}
+          on:mousedown|preventDefault|stopPropagation
+          on:mouseup|preventDefault|stopPropagation
+          on:keydown={(e) => e.key === 'Enter' && handleIncidentClick(incident)}
+          role="button"
+          tabindex="0"
+          style="--wails-draggable: no-drag;">
           <div class="incident-header">
             <span class="incident-number">#{incident.IncidentNumber}</span>
             <span 
@@ -216,7 +305,7 @@
               </div>
             {/if}
           </div>
-        </button>
+        </div>
       {/each}
     {/if}
   </div>
@@ -261,6 +350,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    font-size: 14px;
+    user-select: none;
   }
 
   .service-dropdown-btn:hover {
@@ -282,7 +373,7 @@
     min-width: 200px;
     max-height: 300px;
     overflow-y: auto;
-    z-index: 100;
+    z-index: 1000;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   }
 
@@ -292,6 +383,7 @@
     padding: 10px;
     cursor: pointer;
     transition: background 0.2s;
+    user-select: none;
   }
 
   .service-option:hover {
@@ -300,6 +392,7 @@
 
   .service-option input {
     margin-right: 10px;
+    cursor: pointer;
   }
 
   .no-services {
@@ -321,10 +414,13 @@
     border-radius: 4px;
     cursor: pointer;
     transition: all 0.3s;
+    font-size: 14px;
+    user-select: none;
   }
 
   .tab:hover {
     background: #444;
+    color: #fff;
   }
 
   .tab.active {
@@ -357,12 +453,19 @@
     transition: all 0.3s;
     color: inherit;
     font-family: inherit;
+    font-size: inherit;
+    user-select: none;
   }
 
   .incident-card:hover {
     background: #333;
     border-color: #444;
     transform: translateX(2px);
+  }
+
+  .incident-card:focus {
+    outline: 2px solid #007bff;
+    outline-offset: 2px;
   }
 
   .incident-header {
