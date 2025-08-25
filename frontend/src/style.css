@@ -33,6 +33,35 @@ body {
     box-sizing: border-box;
 }
 
+/* Ensure all interactive elements have pointer events and are not draggable */
+button,
+input,
+textarea,
+select,
+a,
+label,
+.incident-card,
+.service-option,
+.tab,
+.modal-overlay,
+.modal-panel,
+.incidents-list,
+.incidents-panel,
+.panel-header,
+.controls,
+.tabs,
+.service-selector,
+.service-dropdown,
+.service-dropdown-btn,
+.settings-btn,
+.tab-content,
+.drop-zone,
+.app-header,
+.app-content {
+    pointer-events: auto !important;
+    --wails-draggable: no-drag !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
     width: 8px;

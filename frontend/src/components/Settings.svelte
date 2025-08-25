@@ -80,9 +80,12 @@
     // Only close if clicking the overlay, not the modal content
     if (event && event.target && event.target.classList && event.target.classList.contains('modal-overlay')) {
       isOpen = false;
-    } else if (!event) {
-      isOpen = false;
     }
+  }
+
+  function closeSettings() {
+    console.log('Closing settings modal');
+    isOpen = false;
   }
 
   function handleKeyDown(event) {
@@ -101,24 +104,39 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="settings-title"
->
+  style="--wails-draggable: no-drag;">
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <div class="modal-panel" on:click|stopPropagation>
+  <div class="modal-panel" on:click|stopPropagation style="--wails-draggable: no-drag;">
     <div class="modal-header">
       <h2 id="settings-title">Settings</h2>
-      <button class="close-btn" on:click={() => isOpen = false} aria-label="Close settings">×</button>
+      <button 
+        class="close-btn" 
+        on:click={closeSettings}
+        on:mousedown|preventDefault|stopPropagation
+        on:mouseup|preventDefault|stopPropagation
+        type="button"
+        aria-label="Close settings"
+        style="--wails-draggable: no-drag;">×</button>
     </div>
     
     <div class="tabs">
       <button 
         class="tab {activeTab === 'general' ? 'active' : ''}" 
-        on:click={() => activeTab = 'general'}>
+        on:click={() => activeTab = 'general'}
+        on:mousedown|preventDefault|stopPropagation
+        on:mouseup|preventDefault|stopPropagation
+        type="button"
+        style="--wails-draggable: no-drag;">
         General
       </button>
       <button 
         class="tab {activeTab === 'configuration' ? 'active' : ''}" 
-        on:click={() => activeTab = 'configuration'}>
+        on:click={() => activeTab = 'configuration'}
+        on:mousedown|preventDefault|stopPropagation
+        on:mouseup|preventDefault|stopPropagation
+        type="button"
+        style="--wails-draggable: no-drag;">
         Configuration
       </button>
     </div>
@@ -128,7 +146,13 @@
         <div class="general-tab">
           <h3>API Key Configuration</h3>
           {#if !showApiKeyInput}
-            <button class="config-btn" on:click={() => showApiKeyInput = true}>
+            <button 
+              class="config-btn" 
+              on:click={() => showApiKeyInput = true}
+              on:mousedown|preventDefault|stopPropagation
+              on:mouseup|preventDefault|stopPropagation
+              type="button"
+              style="--wails-draggable: no-drag;">
               Configure API Key
             </button>
             {#if apiKey}
@@ -142,8 +166,20 @@
                 placeholder="Enter PagerDuty API Key"
               />
               <div class="button-group">
-                <button class="save-btn" on:click={saveAPIKey}>Save</button>
-                <button class="cancel-btn" on:click={() => showApiKeyInput = false}>Cancel</button>
+                <button 
+                  class="save-btn" 
+                  on:click={saveAPIKey}
+                  on:mousedown|preventDefault|stopPropagation
+                  on:mouseup|preventDefault|stopPropagation
+                  type="button"
+                  style="--wails-draggable: no-drag;">Save</button>
+                <button 
+                  class="cancel-btn" 
+                  on:click={() => showApiKeyInput = false}
+                  on:mousedown|preventDefault|stopPropagation
+                  on:mouseup|preventDefault|stopPropagation
+                  type="button"
+                  style="--wails-draggable: no-drag;">Cancel</button>
               </div>
             </div>
           {/if}
@@ -167,7 +203,13 @@
               style="display: none"
             />
             <p>Drop JSON file here or</p>
-            <button class="upload-btn" on:click={() => fileInput.click()}>
+            <button 
+              class="upload-btn" 
+              on:click={() => fileInput.click()}
+              on:mousedown|preventDefault|stopPropagation
+              on:mouseup|preventDefault|stopPropagation
+              type="button"
+              style="--wails-draggable: no-drag;">
               Choose File
             </button>
           </div>
@@ -207,7 +249,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
+    z-index: 10000;
     backdrop-filter: blur(2px);
   }
 
@@ -220,7 +262,6 @@
     overflow-y: auto;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
     position: relative;
-    z-index: 10000;
   }
 
   .modal-header {
@@ -245,6 +286,9 @@
     padding: 0;
     width: 30px;
     height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .close-btn:hover {
@@ -265,6 +309,7 @@
     cursor: pointer;
     border-bottom: 2px solid transparent;
     transition: all 0.3s;
+    font-size: 14px;
   }
 
   .tab:hover {
@@ -294,6 +339,7 @@
     border-radius: 4px;
     cursor: pointer;
     transition: background 0.3s;
+    font-size: 14px;
   }
 
   .config-btn:hover, .upload-btn:hover {
@@ -317,6 +363,7 @@
     background: #1a1a1a;
     color: #fff;
     margin-bottom: 10px;
+    box-sizing: border-box;
   }
 
   .button-group {
@@ -331,6 +378,7 @@
     padding: 8px 16px;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 14px;
   }
 
   .save-btn:hover {
@@ -344,6 +392,7 @@
     padding: 8px 16px;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 14px;
   }
 
   .cancel-btn:hover {
