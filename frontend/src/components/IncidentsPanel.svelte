@@ -18,13 +18,14 @@
     // Load services configuration
     await loadServicesConfig();
 
-    // Load initial incidents
-    loadIncidents();
+    // Don't load initial incidents from store - wait for fresh data
+    // The backend will fetch fresh data immediately
 
     // Listen for incident updates
     EventsOn('incidents-updated', (type) => {
       LogDebug(`Incidents update event received: ${type}`);
-      if (type === 'open' && activeTab === 'open') {
+      if ((type === 'open' && activeTab === 'open') || 
+          (type === 'resolved' && activeTab === 'resolved')) {
         loadIncidents();
       }
     });
@@ -37,6 +38,9 @@
 
     // Add click outside handler
     document.addEventListener('click', handleClickOutside);
+    
+    // Load incidents after services are configured
+    loadIncidents();
   });
 
   onDestroy(() => {
@@ -100,11 +104,13 @@
     loading = true;
     try {
       if (activeTab === 'open') {
+        // Pass selected services to filter on backend
         incidents = await GetOpenIncidents(selectedServiceIds) || [];
       } else {
+        // Pass selected services to filter resolved incidents
         incidents = await GetResolvedIncidents(selectedServiceIds) || [];
       }
-      LogDebug(`Loaded ${incidents.length} ${activeTab} incidents`);
+      LogDebug(`Loaded ${incidents.length} ${activeTab} incidents for ${selectedServiceIds.length} selected services`);
     } catch (err) {
       console.error('Failed to load incidents:', err);
       incidents = [];
@@ -139,6 +145,7 @@
     }
     
     await updateSelectedServicesBackend();
+    // Always reload incidents when services change
     loadIncidents();
   }
 
@@ -163,6 +170,7 @@
       });
       selectedServiceIds = allServiceIds;
       await updateSelectedServicesBackend();
+      // Reload incidents with all services
       loadIncidents();
     }
   }
@@ -170,11 +178,13 @@
   async function deselectAllServices() {
     selectedServiceIds = [];
     await updateSelectedServicesBackend();
+    // Reload incidents with no services
     loadIncidents();
   }
 
   async function switchTab(tab) {
     activeTab = tab;
+    // Load incidents for the new tab with current service filter
     await loadIncidents();
   }
 
@@ -188,7 +198,7 @@
   function formatDate(dateString) {
     const date = new Date(dateString);
     const now = new Date();
-    const diffMs = now - date;
+    const diffMs = now.getTime() - date.getTime(); // Fixed: Convert dates to timestamps
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
