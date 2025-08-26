@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"pager-ops/database"
@@ -26,6 +27,7 @@ type App struct {
 	selectedServices []string
 	kr               keyring.Keyring
 	logger           *Logger
+	mu               sync.RWMutex // Protect concurrent access
 }
 
 // NewApp creates a new App application struct
@@ -163,6 +165,10 @@ func (a *App) UploadServicesConfig(content string) error {
 		return fmt.Errorf("invalid JSON format: %w", err)
 	}
 
+	// Lock for writing
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	a.servicesConfig = &config
 	a.logger.Info(fmt.Sprintf("Services configuration uploaded with %d services", len(config.Services)))
 
@@ -178,14 +184,39 @@ func (a *App) UploadServicesConfig(content string) error {
 					a.selectedServices = append(a.selectedServices, strID)
 				}
 			}
+		case float64:
+			// Handle numeric IDs that come from JSON
+			a.selectedServices = append(a.selectedServices, fmt.Sprintf("%.0f", id))
 		}
 	}
 
+	// Emit event to update UI
+	runtime.EventsEmit(a.ctx, "services-config-updated")
+	
+	return nil
+}
+
+// RemoveServicesConfig removes the current services configuration
+func (a *App) RemoveServicesConfig() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.servicesConfig = nil
+	a.selectedServices = []string{}
+	
+	a.logger.Info("Services configuration removed")
+	
+	// Emit event to update UI
+	runtime.EventsEmit(a.ctx, "services-config-updated")
+	
 	return nil
 }
 
 // GetServicesConfig returns the current services configuration
 func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	if a.servicesConfig == nil {
 		return nil, fmt.Errorf("no services configuration loaded")
 	}
@@ -194,10 +225,21 @@ func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
 
 // SetSelectedServices updates the selected services for filtering
 func (a *App) SetSelectedServices(services []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	a.selectedServices = services
 	if a.logger != nil {
 		a.logger.Debug(fmt.Sprintf("Selected services updated: %d services", len(services)))
 	}
+}
+
+// GetSelectedServices returns the currently selected services
+func (a *App) GetSelectedServices() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	return append([]string{}, a.selectedServices...)
 }
 
 // StartPolling starts the incident polling
@@ -207,7 +249,7 @@ func (a *App) StartPolling() {
 	}
 
 	a.polling = true
-	a.pollTicker = time.NewTicker(30 * time.Second) // Changed to 30 seconds to reduce log spam
+	a.pollTicker = time.NewTicker(30 * time.Second)
 	a.logger.Info("Started incident polling (30s interval)")
 
 	go func() {
@@ -238,6 +280,11 @@ func (a *App) fetchAndUpdateIncidents() {
 		return
 	}
 
+	// Get selected services with read lock
+	a.mu.RLock()
+	selectedServices := append([]string{}, a.selectedServices...)
+	a.mu.RUnlock()
+
 	// Get current user
 	user, err := a.client.GetCurrentUser()
 	if err != nil {
@@ -246,7 +293,7 @@ func (a *App) fetchAndUpdateIncidents() {
 	}
 
 	// Fetch open incidents
-	incidents, err := a.client.FetchOpenIncidents(a.selectedServices, user.ID)
+	incidents, err := a.client.FetchOpenIncidents(selectedServices, user.ID)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch open incidents: %v", err))
 		return
@@ -270,33 +317,65 @@ func (a *App) fetchAndUpdateIncidents() {
 	runtime.EventsEmit(a.ctx, "incidents-updated", "open")
 }
 
-// GetOpenIncidents returns all open incidents from the database
-func (a *App) GetOpenIncidents() ([]database.IncidentData, error) {
+// GetOpenIncidents returns open incidents filtered by selected services
+func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, error) {
 	if a.db == nil {
 		err := fmt.Errorf("database not initialized")
 		a.logger.Error(err.Error())
 		return nil, err
 	}
-	
-	incidents, err := a.db.GetOpenIncidents()
+
+	// Get all open incidents from database
+	allIncidents, err := a.db.GetOpenIncidents()
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to get open incidents: %v", err))
 		return nil, err
 	}
-	
-	return incidents, nil
+
+	// If no services selected, return all
+	if len(serviceIDs) == 0 {
+		return allIncidents, nil
+	}
+
+	// Filter by selected services
+	serviceMap := make(map[string]bool)
+	for _, id := range serviceIDs {
+		serviceMap[id] = true
+	}
+
+	var filteredIncidents []database.IncidentData
+	for _, incident := range allIncidents {
+		if serviceMap[incident.ServiceID] {
+			filteredIncidents = append(filteredIncidents, incident)
+		}
+	}
+
+	return filteredIncidents, nil
 }
 
-// GetResolvedIncidents fetches and returns resolved incidents
-func (a *App) GetResolvedIncidents() ([]database.IncidentData, error) {
+// GetResolvedIncidents fetches and returns resolved incidents for selected services
+func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData, error) {
 	if a.client == nil {
 		err := fmt.Errorf("PagerDuty client not initialized")
 		a.logger.Warn(err.Error())
 		return nil, err
 	}
 
+	// Get configured services if no specific services requested
+	if len(serviceIDs) == 0 {
+		a.mu.RLock()
+		serviceIDs = append([]string{}, a.selectedServices...)
+		a.mu.RUnlock()
+	}
+
+	// Only fetch if we have services configured
+	if len(serviceIDs) == 0 {
+		a.logger.Info("No services configured, returning empty resolved incidents")
+		return []database.IncidentData{}, nil
+	}
+
 	// Fetch resolved incidents from PagerDuty
-	incidents, err := a.client.FetchResolvedIncidents(a.selectedServices)
+	incidents, err := a.client.FetchResolvedIncidents(serviceIDs)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 		return nil, fmt.Errorf("failed to fetch resolved incidents: %w", err)
@@ -309,8 +388,26 @@ func (a *App) GetResolvedIncidents() ([]database.IncidentData, error) {
 		}
 	}
 
-	// Return from database
-	return a.db.GetResolvedIncidents()
+	// Return filtered incidents from database
+	allResolved, err := a.db.GetResolvedIncidents()
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter by service IDs
+	serviceMap := make(map[string]bool)
+	for _, id := range serviceIDs {
+		serviceMap[id] = true
+	}
+
+	var filteredIncidents []database.IncidentData
+	for _, incident := range allResolved {
+		if serviceMap[incident.ServiceID] {
+			filteredIncidents = append(filteredIncidents, incident)
+		}
+	}
+
+	return filteredIncidents, nil
 }
 
 // ReadFile reads a file and returns its content

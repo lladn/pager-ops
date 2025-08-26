@@ -2,38 +2,38 @@ package database
 
 import (
 	"database/sql"
-	"fmt"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type DB struct {
-	conn *sql.DB
+// IncidentData represents an incident record in the database
+type IncidentData struct {
+	IncidentID     string    `json:"incident_id"`
+	IncidentNumber int       `json:"incident_number"`
+	Title          string    `json:"title"`
+	ServiceSummary string    `json:"service_summary"`
+	ServiceID      string    `json:"service_id"`
+	Status         string    `json:"status"`
+	HTMLURL        string    `json:"html_url"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	AlertCount     int       `json:"alert_count"`
 }
 
-type IncidentData struct {
-	IncidentID     string
-	IncidentNumber int
-	Title          string
-	ServiceSummary string
-	ServiceID      string
-	Status         string
-	HTMLURL        string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	AlertCount     int
+type DB struct {
+	conn *sql.DB
 }
 
 func NewDB(dbPath string) (*DB, error) {
 	conn, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, err
 	}
 
 	db := &DB{conn: conn}
 	if err := db.createTables(); err != nil {
-		return nil, fmt.Errorf("failed to create tables: %w", err)
+		return nil, err
 	}
 
 	return db, nil
@@ -52,12 +52,7 @@ func (db *DB) createTables() error {
 		created_at DATETIME,
 		updated_at DATETIME,
 		alert_count INTEGER
-	);
-	
-	CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
-	CREATE INDEX IF NOT EXISTS idx_incidents_service_id ON incidents(service_id);
-	CREATE INDEX IF NOT EXISTS idx_incidents_created_at ON incidents(created_at);
-	`
+	)`
 
 	_, err := db.conn.Exec(query)
 	return err
@@ -65,10 +60,9 @@ func (db *DB) createTables() error {
 
 func (db *DB) UpsertIncident(incident IncidentData) error {
 	query := `
-	INSERT INTO incidents (
-		incident_id, incident_number, title, service_summary, 
-		service_id, status, html_url, created_at, updated_at, alert_count
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO incidents (incident_id, incident_number, title, service_summary, 
+		service_id, status, html_url, created_at, updated_at, alert_count)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(incident_id) DO UPDATE SET
 		incident_number = excluded.incident_number,
 		title = excluded.title,

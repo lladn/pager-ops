@@ -5,9 +5,9 @@
 
   let activeTab = 'open';
   let incidents = [];
-  let filteredIncidents = [];
   let servicesConfig = null;
-  let selectedServices = new Set();
+  let selectedServiceIds = [];
+  let serviceIdToName = {};
   let showServiceDropdown = false;
   let loading = false;
   let dropdownRef;
@@ -16,22 +16,7 @@
     LogDebug("IncidentsPanel mounted");
     
     // Load services configuration
-    try {
-      servicesConfig = await GetServicesConfig();
-      LogDebug(`Services config loaded: ${JSON.stringify(servicesConfig)}`);
-      
-      // Initialize all services as selected
-      if (servicesConfig && servicesConfig.services) {
-        servicesConfig.services.forEach(service => {
-          selectedServices.add(service.name);
-        });
-        selectedServices = selectedServices;
-        updateSelectedServicesBackend();
-      }
-    } catch (err) {
-      LogDebug(`No services configuration found: ${err}`);
-      console.log('No services configuration found');
-    }
+    await loadServicesConfig();
 
     // Load initial incidents
     loadIncidents();
@@ -44,24 +29,88 @@
       }
     });
 
+    // Listen for services config updates
+    EventsOn('services-config-updated', async () => {
+      await loadServicesConfig();
+      loadIncidents();
+    });
+
     // Add click outside handler
     document.addEventListener('click', handleClickOutside);
-    document.addEventListener('mousedown', logMouseEvent);
-    document.addEventListener('mouseup', logMouseEvent);
   });
 
   onDestroy(() => {
     EventsOff('incidents-updated');
+    EventsOff('services-config-updated');
     document.removeEventListener('click', handleClickOutside);
-    document.removeEventListener('mousedown', logMouseEvent);
-    document.removeEventListener('mouseup', logMouseEvent);
   });
 
-  function logMouseEvent(event) {
-    const target = event.target;
-    const classList = target.classList ? Array.from(target.classList).join(', ') : 'no-classes';
-    LogDebug(`Mouse ${event.type} on element: ${target.tagName}, classes: ${classList}, id: ${target.id || 'no-id'}`);
-    console.log(`Mouse ${event.type}:`, target);
+  async function loadServicesConfig() {
+    try {
+      servicesConfig = await GetServicesConfig();
+      LogDebug(`Services config loaded: ${JSON.stringify(servicesConfig)}`);
+      
+      if (servicesConfig && servicesConfig.services) {
+        // Build service ID to name mapping and collect all service IDs
+        serviceIdToName = {};
+        const allServiceIds = [];
+        
+        servicesConfig.services.forEach(service => {
+          // Handle different ID formats
+          if (typeof service.id === 'string') {
+            serviceIdToName[service.id] = service.name;
+            allServiceIds.push(service.id);
+          } else if (Array.isArray(service.id)) {
+            service.id.forEach(id => {
+              serviceIdToName[id] = service.name;
+              allServiceIds.push(id);
+            });
+          } else if (typeof service.id === 'number') {
+            const idStr = service.id.toString();
+            serviceIdToName[idStr] = service.name;
+            allServiceIds.push(idStr);
+          }
+        });
+        
+        // Initialize with all services selected
+        selectedServiceIds = [...allServiceIds];
+        await updateSelectedServicesBackend();
+      } else {
+        selectedServiceIds = [];
+        serviceIdToName = {};
+      }
+    } catch (err) {
+      LogDebug(`No services configuration found: ${err}`);
+      console.log('No services configuration found');
+      selectedServiceIds = [];
+      serviceIdToName = {};
+    }
+  }
+
+  async function updateSelectedServicesBackend() {
+    try {
+      await SetSelectedServices(selectedServiceIds);
+      LogDebug(`Updated backend with ${selectedServiceIds.length} selected services`);
+    } catch (err) {
+      LogDebug(`Failed to update selected services: ${err}`);
+    }
+  }
+
+  async function loadIncidents() {
+    loading = true;
+    try {
+      if (activeTab === 'open') {
+        incidents = await GetOpenIncidents(selectedServiceIds) || [];
+      } else {
+        incidents = await GetResolvedIncidents(selectedServiceIds) || [];
+      }
+      LogDebug(`Loaded ${incidents.length} ${activeTab} incidents`);
+    } catch (err) {
+      console.error('Failed to load incidents:', err);
+      incidents = [];
+    } finally {
+      loading = false;
+    }
   }
 
   function handleClickOutside(event) {
@@ -70,239 +119,227 @@
     }
   }
 
-  async function loadIncidents() {
-    LogDebug(`Loading incidents for tab: ${activeTab}`);
-    loading = true;
-    try {
-      if (activeTab === 'open') {
-        incidents = await GetOpenIncidents();
-        LogDebug(`Loaded ${incidents.length} open incidents`);
-      } else {
-        incidents = await GetResolvedIncidents();
-        LogDebug(`Loaded ${incidents.length} resolved incidents`);
-      }
-      filterIncidents();
-    } catch (err) {
-      LogDebug(`Failed to load incidents: ${err}`);
-      console.error('Failed to load incidents:', err);
-      incidents = [];
-      filteredIncidents = [];
-    }
-    loading = false;
+  function toggleServiceDropdown() {
+    showServiceDropdown = !showServiceDropdown;
   }
 
-  function filterIncidents() {
-    if (!servicesConfig || selectedServices.size === 0) {
-      filteredIncidents = incidents;
-      LogDebug(`No filter applied, showing all ${incidents.length} incidents`);
-      return;
+  function handleDropdownKeyPress(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleServiceDropdown();
     }
-
-    // Get all service IDs for selected service names
-    const selectedServiceIds = new Set();
-    servicesConfig.services.forEach(service => {
-      if (selectedServices.has(service.name)) {
-        if (typeof service.id === 'string') {
-          selectedServiceIds.add(service.id);
-        } else if (Array.isArray(service.id)) {
-          service.id.forEach(id => selectedServiceIds.add(id));
-        }
-      }
-    });
-
-    filteredIncidents = incidents.filter(incident => 
-      selectedServiceIds.has(incident.ServiceID)
-    );
-    LogDebug(`Filtered to ${filteredIncidents.length} incidents from ${incidents.length} total`);
   }
 
-  function toggleService(serviceName) {
-    LogDebug(`Toggling service: ${serviceName}`);
-    if (selectedServices.has(serviceName)) {
-      selectedServices.delete(serviceName);
+  async function toggleService(serviceId) {
+    const index = selectedServiceIds.indexOf(serviceId);
+    if (index > -1) {
+      selectedServiceIds = selectedServiceIds.filter(id => id !== serviceId);
     } else {
-      selectedServices.add(serviceName);
+      selectedServiceIds = [...selectedServiceIds, serviceId];
     }
-    selectedServices = selectedServices;
-    updateSelectedServicesBackend();
-    filterIncidents();
-  }
-
-  async function updateSelectedServicesBackend() {
-    if (!servicesConfig) return;
     
-    const serviceIds = [];
-    servicesConfig.services.forEach(service => {
-      if (selectedServices.has(service.name)) {
-        if (typeof service.id === 'string') {
-          serviceIds.push(service.id);
-        } else if (Array.isArray(service.id)) {
-          serviceIds.push(...service.id);
-        }
-      }
-    });
-    
-    LogDebug(`Updating selected services in backend: ${serviceIds.join(', ')}`);
-    await SetSelectedServices(serviceIds);
-  }
-
-  function switchTab(tab) {
-    LogDebug(`Switching to tab: ${tab}`);
-    console.log('Tab switch clicked:', tab);
-    activeTab = tab;
+    await updateSelectedServicesBackend();
     loadIncidents();
   }
 
-  function toggleDropdown(event) {
-    LogDebug(`Dropdown toggle clicked, current state: ${showServiceDropdown}`);
-    console.log('Dropdown toggle clicked');
-    event.stopPropagation();
-    event.preventDefault();
-    showServiceDropdown = !showServiceDropdown;
-    LogDebug(`Dropdown new state: ${showServiceDropdown}`);
+  function handleServiceKeyPress(event, serviceId) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleService(serviceId);
+    }
+  }
+
+  async function selectAllServices() {
+    if (servicesConfig && servicesConfig.services) {
+      const allServiceIds = [];
+      servicesConfig.services.forEach(service => {
+        if (typeof service.id === 'string') {
+          allServiceIds.push(service.id);
+        } else if (Array.isArray(service.id)) {
+          allServiceIds.push(...service.id);
+        } else if (typeof service.id === 'number') {
+          allServiceIds.push(service.id.toString());
+        }
+      });
+      selectedServiceIds = allServiceIds;
+      await updateSelectedServicesBackend();
+      loadIncidents();
+    }
+  }
+
+  async function deselectAllServices() {
+    selectedServiceIds = [];
+    await updateSelectedServicesBackend();
+    loadIncidents();
+  }
+
+  async function switchTab(tab) {
+    activeTab = tab;
+    await loadIncidents();
+  }
+
+  function handleTabKeyPress(event, tab) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      switchTab(tab);
+    }
   }
 
   function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleString();
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString();
   }
 
   function getStatusColor(status) {
     switch(status) {
-      case 'triggered': return '#dc3545';
-      case 'acknowledged': return '#ffc107';
-      case 'resolved': return '#28a745';
-      default: return '#6c757d';
+      case 'triggered': return '#ff6b6b';
+      case 'acknowledged': return '#ffd93d';
+      case 'resolved': return '#6bcf7f';
+      default: return '#999';
     }
   }
 
-  async function openIncident(url) {
-    LogDebug(`Opening incident URL: ${url}`);
-    console.log('Opening URL:', url);
-    try {
-      await BrowserOpenURL(url);
-      LogDebug(`Successfully opened URL`);
-    } catch (err) {
-      LogDebug(`Failed to open URL: ${err}`);
-      console.error('Failed to open incident URL:', err);
+  function getServiceDisplayName(serviceId) {
+    return serviceIdToName[serviceId] || 'Unknown Service';
+  }
+
+  function getUniqueServices() {
+    const uniqueServices = new Map();
+    if (servicesConfig && servicesConfig.services) {
+      servicesConfig.services.forEach(service => {
+        if (typeof service.id === 'string') {
+          uniqueServices.set(service.id, service.name);
+        } else if (Array.isArray(service.id)) {
+          service.id.forEach(id => {
+            if (!uniqueServices.has(id)) {
+              uniqueServices.set(id, service.name);
+            }
+          });
+        } else if (typeof service.id === 'number') {
+          const idStr = service.id.toString();
+          uniqueServices.set(idStr, service.name);
+        }
+      });
     }
+    return Array.from(uniqueServices.entries());
   }
 
-  function handleTabClick(tab) {
-    LogDebug(`Tab clicked: ${tab}`);
-    console.log('Tab clicked:', tab);
-    switchTab(tab);
+  function openIncident(url) {
+    BrowserOpenURL(url);
   }
 
-  function handleIncidentClick(incident) {
-    LogDebug(`Incident clicked: #${incident.IncidentNumber}`);
-    console.log('Incident clicked:', incident);
-    openIncident(incident.HTMLURL);
+  function handleIncidentKeyPress(event, url) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openIncident(url);
+    }
   }
 </script>
 
-<div class="incidents-panel" style="--wails-draggable: no-drag;">
-  <div class="panel-header" style="--wails-draggable: no-drag;">
-    <h2>Incidents</h2>
+<div class="incidents-panel">
+  <div class="panel-header">
+    <div class="tabs">
+      <button 
+        class="tab {activeTab === 'open' ? 'active' : ''}" 
+        on:click={() => switchTab('open')}
+        on:keypress={(e) => handleTabKeyPress(e, 'open')}
+        role="tab"
+        aria-selected={activeTab === 'open'}>
+        Open ({incidents.filter(i => i.status !== 'resolved').length})
+      </button>
+      <button 
+        class="tab {activeTab === 'resolved' ? 'active' : ''}" 
+        on:click={() => switchTab('resolved')}
+        on:keypress={(e) => handleTabKeyPress(e, 'resolved')}
+        role="tab"
+        aria-selected={activeTab === 'resolved'}>
+        Resolved
+      </button>
+    </div>
     
-    <div class="controls" style="--wails-draggable: no-drag;">
-      <div class="service-selector" bind:this={dropdownRef} style="--wails-draggable: no-drag;">
+    {#if servicesConfig && servicesConfig.services && servicesConfig.services.length > 0}
+      <div class="service-filter" bind:this={dropdownRef}>
         <button 
-          class="service-dropdown-btn" 
-          on:click={toggleDropdown}
-          on:mousedown|preventDefault|stopPropagation
-          on:mouseup|preventDefault|stopPropagation
-          type="button"
-          style="--wails-draggable: no-drag;">
-          Services ({selectedServices.size})
-          <span class="dropdown-arrow">▼</span>
+          class="filter-button" 
+          on:click={toggleServiceDropdown}
+          on:keypress={handleDropdownKeyPress}
+          aria-expanded={showServiceDropdown}>
+          Services ({selectedServiceIds.length}/{getUniqueServices().length})
+          <span class="arrow">{showServiceDropdown ? '▲' : '▼'}</span>
         </button>
         
         {#if showServiceDropdown}
-          <div class="service-dropdown" style="--wails-draggable: no-drag;">
-            {#if servicesConfig && servicesConfig.services}
-              {#each servicesConfig.services as service}
-                <label class="service-option" style="--wails-draggable: no-drag;">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedServices.has(service.name)}
-                    on:change={() => toggleService(service.name)}
-                    style="--wails-draggable: no-drag;"
-                  />
-                  <span>{service.name}</span>
-                </label>
-              {/each}
-            {:else}
-              <p class="no-services">No services configured</p>
-            {/if}
+          <div class="dropdown-menu">
+            <div class="dropdown-actions">
+              <button class="dropdown-action" on:click={selectAllServices}>Select All</button>
+              <button class="dropdown-action" on:click={deselectAllServices}>Clear</button>
+            </div>
+            {#each getUniqueServices() as [serviceId, serviceName]}
+              <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
+              <label 
+                class="service-option"
+                on:click|stopPropagation
+                on:keypress={(e) => handleServiceKeyPress(e, serviceId)}
+                tabindex="0"
+                role="checkbox"
+                aria-checked={selectedServiceIds.includes(serviceId)}>
+                <input 
+                  type="checkbox" 
+                  checked={selectedServiceIds.includes(serviceId)}
+                  on:change={() => toggleService(serviceId)}
+                />
+                <span>{serviceName}</span>
+              </label>
+            {/each}
           </div>
         {/if}
       </div>
-      
-      <div class="tabs" style="--wails-draggable: no-drag;">
-        <button 
-          class="tab {activeTab === 'open' ? 'active' : ''}" 
-          on:click={() => handleTabClick('open')}
-          on:mousedown|preventDefault|stopPropagation
-          on:mouseup|preventDefault|stopPropagation
-          type="button"
-          style="--wails-draggable: no-drag;">
-          Open Incidents
-        </button>
-        <button 
-          class="tab {activeTab === 'resolved' ? 'active' : ''}" 
-          on:click={() => handleTabClick('resolved')}
-          on:mousedown|preventDefault|stopPropagation
-          on:mouseup|preventDefault|stopPropagation
-          type="button"
-          style="--wails-draggable: no-drag;">
-          Resolved
-        </button>
-      </div>
-    </div>
+    {/if}
   </div>
 
-  <div class="incidents-list" style="--wails-draggable: no-drag;">
+  <div class="incidents-list">
     {#if loading}
       <div class="loading">Loading incidents...</div>
-    {:else if filteredIncidents.length === 0}
-      <div class="no-incidents">No incidents found</div>
+    {:else if incidents.length === 0}
+      <div class="no-incidents">
+        {#if activeTab === 'open'}
+          No open incidents
+        {:else}
+          No resolved incidents in the last 7 days
+        {/if}
+      </div>
     {:else}
-      {#each filteredIncidents as incident}
+      {#each incidents as incident}
         <div 
           class="incident-card" 
-          on:click={() => handleIncidentClick(incident)}
-          on:mousedown|preventDefault|stopPropagation
-          on:mouseup|preventDefault|stopPropagation
-          on:keydown={(e) => e.key === 'Enter' && handleIncidentClick(incident)}
-          role="button"
+          on:click={() => openIncident(incident.html_url)}
+          on:keypress={(e) => handleIncidentKeyPress(e, incident.html_url)}
           tabindex="0"
-          style="--wails-draggable: no-drag;">
+          role="button"
+          aria-label="Open incident {incident.incident_number}">
           <div class="incident-header">
-            <span class="incident-number">#{incident.IncidentNumber}</span>
-            <span 
-              class="incident-status" 
-              style="background-color: {getStatusColor(incident.Status)}">
-              {incident.Status}
+            <span class="incident-number">#{incident.incident_number}</span>
+            <span class="incident-status" style="color: {getStatusColor(incident.status)}">
+              {incident.status}
             </span>
           </div>
-          
-          <h3 class="incident-title">{incident.Title}</h3>
-          
-          <div class="incident-details">
-            <div class="detail-item">
-              <span class="label">Service:</span>
-              <span class="value">{incident.ServiceSummary}</span>
-            </div>
-            <div class="detail-item">
-              <span class="label">Created:</span>
-              <span class="value">{formatDate(incident.CreatedAt)}</span>
-            </div>
-            {#if incident.AlertCount > 0}
-              <div class="detail-item">
-                <span class="label">Alerts:</span>
-                <span class="value">{incident.AlertCount}</span>
-              </div>
+          <div class="incident-title">{incident.title}</div>
+          <div class="incident-meta">
+            <span class="service-name">{getServiceDisplayName(incident.service_id)}</span>
+            <span class="incident-time">{formatDate(incident.created_at)}</span>
+            {#if incident.alert_count > 0}
+              <span class="alert-count">{incident.alert_count} alerts</span>
             {/if}
           </div>
         </div>
@@ -313,92 +350,19 @@
 
 <style>
   .incidents-panel {
-    height: 100%;
     display: flex;
     flex-direction: column;
+    height: 100%;
     background: #1a1a1a;
-    color: #fff;
   }
 
   .panel-header {
-    padding: 20px;
-    border-bottom: 1px solid #333;
-    background: #222;
-  }
-
-  .panel-header h2 {
-    margin: 0 0 15px 0;
-  }
-
-  .controls {
     display: flex;
     justify-content: space-between;
     align-items: center;
-  }
-
-  .service-selector {
-    position: relative;
-  }
-
-  .service-dropdown-btn {
-    background: #333;
-    color: #fff;
-    border: 1px solid #444;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    user-select: none;
-  }
-
-  .service-dropdown-btn:hover {
-    background: #444;
-  }
-
-  .dropdown-arrow {
-    font-size: 10px;
-  }
-
-  .service-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    min-width: 200px;
-    max-height: 300px;
-    overflow-y: auto;
-    z-index: 1000;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-  }
-
-  .service-option {
-    display: flex;
-    align-items: center;
-    padding: 10px;
-    cursor: pointer;
-    transition: background 0.2s;
-    user-select: none;
-  }
-
-  .service-option:hover {
-    background: #333;
-  }
-
-  .service-option input {
-    margin-right: 10px;
-    cursor: pointer;
-  }
-
-  .no-services {
-    padding: 10px;
-    color: #999;
-    text-align: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid #333;
+    background: #242424;
   }
 
   .tabs {
@@ -407,25 +371,111 @@
   }
 
   .tab {
-    background: #333;
-    color: #999;
+    background: none;
     border: none;
+    color: #999;
     padding: 8px 16px;
-    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.3s;
     font-size: 14px;
-    user-select: none;
+    border-radius: 20px;
+    transition: all 0.3s;
   }
 
   .tab:hover {
-    background: #444;
-    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
   }
 
   .tab.active {
     background: #007bff;
+    color: white;
+  }
+
+  .service-filter {
+    position: relative;
+  }
+
+  .filter-button {
+    background: #333;
+    border: 1px solid #444;
     color: #fff;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .filter-button:hover {
+    background: #444;
+  }
+
+  .arrow {
+    font-size: 10px;
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 5px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    min-width: 250px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  .dropdown-actions {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #444;
+  }
+
+  .dropdown-action {
+    flex: 1;
+    background: #007bff;
+    border: none;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .dropdown-action:hover {
+    background: #0056b3;
+  }
+
+  .service-option {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .service-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .service-option:focus {
+    outline: 2px solid #007bff;
+    outline-offset: -2px;
+  }
+
+  .service-option input {
+    margin-right: 10px;
+  }
+
+  .service-option span {
+    color: #fff;
+    font-size: 14px;
   }
 
   .incidents-list {
@@ -438,29 +488,24 @@
     text-align: center;
     color: #999;
     padding: 40px;
+    font-size: 16px;
   }
 
   .incident-card {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: #2a2a2a;
+    background: #242424;
     border: 1px solid #333;
     border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 12px;
+    padding: 15px;
+    margin-bottom: 10px;
     cursor: pointer;
     transition: all 0.3s;
-    color: inherit;
-    font-family: inherit;
-    font-size: inherit;
-    user-select: none;
   }
 
   .incident-card:hover {
-    background: #333;
+    background: #2a2a2a;
     border-color: #444;
-    transform: translateX(2px);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   }
 
   .incident-card:focus {
@@ -476,43 +521,58 @@
   }
 
   .incident-number {
-    color: #999;
+    color: #007bff;
+    font-weight: bold;
     font-size: 14px;
   }
 
   .incident-status {
-    padding: 4px 8px;
-    border-radius: 4px;
     font-size: 12px;
     text-transform: uppercase;
     font-weight: bold;
-    color: #fff;
   }
 
   .incident-title {
-    margin: 0 0 12px 0;
+    color: #fff;
     font-size: 16px;
+    margin-bottom: 10px;
     line-height: 1.4;
   }
 
-  .incident-details {
+  .incident-meta {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .detail-item {
-    display: flex;
-    font-size: 14px;
-  }
-
-  .label {
+    gap: 15px;
+    font-size: 12px;
     color: #999;
-    margin-right: 8px;
-    min-width: 70px;
   }
 
-  .value {
-    color: #ccc;
+  .service-name {
+    color: #66b3ff;
+  }
+
+  .alert-count {
+    color: #ffd93d;
+  }
+
+  /* Scrollbar styles */
+  .incidents-list::-webkit-scrollbar,
+  .dropdown-menu::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .incidents-list::-webkit-scrollbar-track,
+  .dropdown-menu::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+
+  .incidents-list::-webkit-scrollbar-thumb,
+  .dropdown-menu::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+  }
+
+  .incidents-list::-webkit-scrollbar-thumb:hover,
+  .dropdown-menu::-webkit-scrollbar-thumb:hover {
+    background: #555;
   }
 </style>
