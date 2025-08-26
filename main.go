@@ -21,8 +21,8 @@ func main() {
 		Title:            "PagerOps",
 		Width:            600,
 		Height:           800,
-		MinWidth:         800,
-		MinHeight:        600,
+		MinWidth:         300,
+		MinHeight:        300,
 		DisableResize:    false,
 		Frameless:        false,
 		StartHidden:      false,
@@ -31,7 +31,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 26, G: 26, B: 26, A: 1},
+		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 1},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{

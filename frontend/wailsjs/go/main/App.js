@@ -10,12 +10,16 @@ export function GetAPIKey() {
   return window['go']['main']['App']['GetAPIKey']();
 }
 
-export function GetOpenIncidents() {
-  return window['go']['main']['App']['GetOpenIncidents']();
+export function GetOpenIncidents(arg1) {
+  return window['go']['main']['App']['GetOpenIncidents'](arg1);
 }
 
-export function GetResolvedIncidents() {
-  return window['go']['main']['App']['GetResolvedIncidents']();
+export function GetResolvedIncidents(arg1) {
+  return window['go']['main']['App']['GetResolvedIncidents'](arg1);
+}
+
+export function GetSelectedServices() {
+  return window['go']['main']['App']['GetSelectedServices']();
 }
 
 export function GetServicesConfig() {
@@ -24,6 +28,10 @@ export function GetServicesConfig() {
 
 export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
+}
+
+export function RemoveServicesConfig() {
+  return window['go']['main']['App']['RemoveServicesConfig']();
 }
 
 export function SetSelectedServices(arg1) {
