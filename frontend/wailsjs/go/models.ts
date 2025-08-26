@@ -1,18 +1,18 @@
 export namespace database {
 	
 	export class IncidentData {
-	    IncidentID: string;
-	    IncidentNumber: number;
-	    Title: string;
-	    ServiceSummary: string;
-	    ServiceID: string;
-	    Status: string;
-	    HTMLURL: string;
+	    incident_id: string;
+	    incident_number: number;
+	    title: string;
+	    service_summary: string;
+	    service_id: string;
+	    status: string;
+	    html_url: string;
 	    // Go type: time
-	    CreatedAt: any;
+	    created_at: any;
 	    // Go type: time
-	    UpdatedAt: any;
-	    AlertCount: number;
+	    updated_at: any;
+	    alert_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new IncidentData(source);
@@ -20,16 +20,16 @@ export namespace database {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.IncidentID = source["IncidentID"];
-	        this.IncidentNumber = source["IncidentNumber"];
-	        this.Title = source["Title"];
-	        this.ServiceSummary = source["ServiceSummary"];
-	        this.ServiceID = source["ServiceID"];
-	        this.Status = source["Status"];
-	        this.HTMLURL = source["HTMLURL"];
-	        this.CreatedAt = this.convertValues(source["CreatedAt"], null);
-	        this.UpdatedAt = this.convertValues(source["UpdatedAt"], null);
-	        this.AlertCount = source["AlertCount"];
+	        this.incident_id = source["incident_id"];
+	        this.incident_number = source["incident_number"];
+	        this.title = source["title"];
+	        this.service_summary = source["service_summary"];
+	        this.service_id = source["service_id"];
+	        this.status = source["status"];
+	        this.html_url = source["html_url"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.alert_count = source["alert_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
