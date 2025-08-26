@@ -62,6 +62,11 @@ func (a *App) startup(ctx context.Context) {
 	a.db = db
 	a.logger.Info("Database initialized successfully")
 
+	// Clear old incidents from database on startup to ensure fresh data
+	if err := a.db.ClearIncidents(); err != nil {
+		a.logger.Warn(fmt.Sprintf("Failed to clear old incidents: %v", err))
+	}
+
 	// Initialize keyring
 	kr, err := keyring.Open(keyring.Config{
 		ServiceName: "PagerOps",
@@ -81,7 +86,7 @@ func (a *App) startup(ctx context.Context) {
 		if err == nil {
 			a.client = client
 			a.logger.Info("PagerDuty client initialized successfully")
-			// Start polling
+			// Start polling immediately with fresh data
 			a.StartPolling()
 		} else {
 			a.logger.Error(fmt.Sprintf("Failed to initialize PagerDuty client: %v", err))
@@ -249,11 +254,11 @@ func (a *App) StartPolling() {
 	}
 
 	a.polling = true
-	a.pollTicker = time.NewTicker(30 * time.Second)
-	a.logger.Info("Started incident polling (30s interval)")
+	a.pollTicker = time.NewTicker(3 * time.Second) 
+	a.logger.Info("Started incident polling (3s interval)")
 
 	go func() {
-		// Initial fetch
+		// Initial fetch immediately
 		a.fetchAndUpdateIncidents()
 
 		for range a.pollTicker.C {
@@ -325,6 +330,11 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
+	// Always fetch fresh data from API first if client is available
+	if a.client != nil {
+		a.fetchAndUpdateIncidents()
+	}
+
 	// Get all open incidents from database
 	allIncidents, err := a.db.GetOpenIncidents()
 	if err != nil {
@@ -361,20 +371,36 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 		return nil, err
 	}
 
-	// Get configured services if no specific services requested
-	if len(serviceIDs) == 0 {
-		a.mu.RLock()
-		serviceIDs = append([]string{}, a.selectedServices...)
-		a.mu.RUnlock()
-	}
-
 	// Only fetch if we have services configured
 	if len(serviceIDs) == 0 {
-		a.logger.Info("No services configured, returning empty resolved incidents")
+		a.logger.Info("No services selected, returning empty resolved incidents")
 		return []database.IncidentData{}, nil
 	}
 
-	// Fetch resolved incidents from PagerDuty
+	// Check if we have cached resolved incidents for these services
+	cachedIncidents, err := a.db.GetResolvedIncidentsByServices(serviceIDs)
+	if err == nil && len(cachedIncidents) > 0 {
+		// Return cached data immediately for faster load
+		go func() {
+			// Fetch fresh data in background
+			incidents, err := a.client.FetchResolvedIncidents(serviceIDs)
+			if err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
+				return
+			}
+			// Update database
+			for _, incident := range incidents {
+				if err := a.db.UpsertIncident(incident); err != nil {
+					a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
+				}
+			}
+			// Emit event to update UI
+			runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
+		}()
+		return cachedIncidents, nil
+	}
+
+	// No cache, fetch from PagerDuty
 	incidents, err := a.client.FetchResolvedIncidents(serviceIDs)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
@@ -388,26 +414,8 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 		}
 	}
 
-	// Return filtered incidents from database
-	allResolved, err := a.db.GetResolvedIncidents()
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter by service IDs
-	serviceMap := make(map[string]bool)
-	for _, id := range serviceIDs {
-		serviceMap[id] = true
-	}
-
-	var filteredIncidents []database.IncidentData
-	for _, incident := range allResolved {
-		if serviceMap[incident.ServiceID] {
-			filteredIncidents = append(filteredIncidents, incident)
-		}
-	}
-
-	return filteredIncidents, nil
+	// Return filtered incidents
+	return a.db.GetResolvedIncidentsByServices(serviceIDs)
 }
 
 // ReadFile reads a file and returns its content

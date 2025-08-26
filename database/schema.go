@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -139,6 +140,66 @@ func (db *DB) GetResolvedIncidents() ([]IncidentData, error) {
 	`
 
 	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var incidents []IncidentData
+	for rows.Next() {
+		var i IncidentData
+		err := rows.Scan(
+			&i.IncidentID,
+			&i.IncidentNumber,
+			&i.Title,
+			&i.ServiceSummary,
+			&i.ServiceID,
+			&i.Status,
+			&i.HTMLURL,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AlertCount,
+		)
+		if err != nil {
+			return nil, err
+		}
+		incidents = append(incidents, i)
+	}
+
+	return incidents, nil
+}
+
+// ClearIncidents removes all incidents from the database
+func (db *DB) ClearIncidents() error {
+	query := `DELETE FROM incidents`
+	_, err := db.conn.Exec(query)
+	return err
+}
+
+// GetResolvedIncidentsByServices returns resolved incidents filtered by service IDs
+func (db *DB) GetResolvedIncidentsByServices(serviceIDs []string) ([]IncidentData, error) {
+	if len(serviceIDs) == 0 {
+		return []IncidentData{}, nil
+	}
+
+	// Build the IN clause for service IDs
+	args := make([]interface{}, len(serviceIDs))
+	placeholders := make([]string, len(serviceIDs))
+	for i, id := range serviceIDs {
+		args[i] = id
+		placeholders[i] = "?"
+	}
+	inClause := "(" + strings.Join(placeholders, ",") + ")"
+
+	query := `
+	SELECT incident_id, incident_number, title, service_summary, 
+		   service_id, status, html_url, created_at, updated_at, alert_count
+	FROM incidents
+	WHERE status = 'resolved' AND service_id IN ` + inClause + `
+	ORDER BY created_at DESC
+	`
+
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
