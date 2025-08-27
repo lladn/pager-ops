@@ -5,6 +5,7 @@
 
   let activeTab = 'open';
   let incidents = [];
+  let displayedIncidents = [];
   let servicesConfig = null;
   let selectedServiceIds = [];
   let serviceIdToName = {};
@@ -17,9 +18,6 @@
     
     // Load services configuration
     await loadServicesConfig();
-
-    // Don't load initial incidents from store - wait for fresh data
-    // The backend will fetch fresh data immediately
 
     // Listen for incident updates
     EventsOn('incidents-updated', (type) => {
@@ -101,21 +99,40 @@
   }
 
   async function loadIncidents() {
-    loading = true;
+    // Only show loading on first load or if no incidents yet
+    if (incidents.length === 0) {
+      loading = true;
+    }
+    
     try {
+      let fetchedIncidents = [];
       if (activeTab === 'open') {
         // Pass selected services to filter on backend
-        incidents = await GetOpenIncidents(selectedServiceIds) || [];
+        fetchedIncidents = await GetOpenIncidents(selectedServiceIds) || [];
       } else {
         // Pass selected services to filter resolved incidents
-        incidents = await GetResolvedIncidents(selectedServiceIds) || [];
+        fetchedIncidents = await GetResolvedIncidents(selectedServiceIds) || [];
       }
+      
+      incidents = fetchedIncidents;
+      filterIncidentsByTab();
       LogDebug(`Loaded ${incidents.length} ${activeTab} incidents for ${selectedServiceIds.length} selected services`);
     } catch (err) {
       console.error('Failed to load incidents:', err);
       incidents = [];
+      displayedIncidents = [];
     } finally {
       loading = false;
+    }
+  }
+
+  function filterIncidentsByTab() {
+    if (activeTab === 'open') {
+      displayedIncidents = incidents.filter(i => i.status === 'triggered' || i.status === 'acknowledged');
+    } else if (activeTab === 'resolved') {
+      displayedIncidents = incidents.filter(i => i.status === 'resolved');
+    } else {
+      displayedIncidents = incidents;
     }
   }
 
@@ -136,12 +153,32 @@
     }
   }
 
-  async function toggleService(serviceId) {
-    const index = selectedServiceIds.indexOf(serviceId);
-    if (index > -1) {
-      selectedServiceIds = selectedServiceIds.filter(id => id !== serviceId);
+  async function toggleService(serviceName) {
+    // Get all service IDs for this service name
+    const serviceIds = [];
+    if (servicesConfig && servicesConfig.services) {
+      servicesConfig.services.forEach(service => {
+        if (service.name === serviceName) {
+          if (typeof service.id === 'string') {
+            serviceIds.push(service.id);
+          } else if (Array.isArray(service.id)) {
+            serviceIds.push(...service.id);
+          } else if (typeof service.id === 'number') {
+            serviceIds.push(service.id.toString());
+          }
+        }
+      });
+    }
+    
+    // Check if any of these service IDs are selected
+    const isSelected = serviceIds.some(id => selectedServiceIds.includes(id));
+    
+    if (isSelected) {
+      // Remove all service IDs for this name
+      selectedServiceIds = selectedServiceIds.filter(id => !serviceIds.includes(id));
     } else {
-      selectedServiceIds = [...selectedServiceIds, serviceId];
+      // Add all service IDs for this name
+      selectedServiceIds = [...selectedServiceIds, ...serviceIds];
     }
     
     await updateSelectedServicesBackend();
@@ -149,10 +186,10 @@
     loadIncidents();
   }
 
-  function handleServiceKeyPress(event, serviceId) {
+  function handleServiceKeyPress(event, serviceName) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      toggleService(serviceId);
+      toggleService(serviceName);
     }
   }
 
@@ -184,6 +221,8 @@
 
   async function switchTab(tab) {
     activeTab = tab;
+    // Immediately filter existing incidents while loading new ones
+    filterIncidentsByTab();
     // Load incidents for the new tab with current service filter
     await loadIncidents();
   }
@@ -198,7 +237,7 @@
   function formatDate(dateString) {
     const date = new Date(dateString);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime(); // Fixed: Convert dates to timestamps
+    const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
@@ -224,25 +263,35 @@
     return serviceIdToName[serviceId] || 'Unknown Service';
   }
 
-  function getUniqueServices() {
-    const uniqueServices = new Map();
+  function getUniqueServiceNames() {
+    const uniqueNames = new Set();
     if (servicesConfig && servicesConfig.services) {
       servicesConfig.services.forEach(service => {
-        if (typeof service.id === 'string') {
-          uniqueServices.set(service.id, service.name);
-        } else if (Array.isArray(service.id)) {
-          service.id.forEach(id => {
-            if (!uniqueServices.has(id)) {
-              uniqueServices.set(id, service.name);
-            }
-          });
-        } else if (typeof service.id === 'number') {
-          const idStr = service.id.toString();
-          uniqueServices.set(idStr, service.name);
-        }
+        uniqueNames.add(service.name);
       });
     }
-    return Array.from(uniqueServices.entries());
+    return Array.from(uniqueNames);
+  }
+
+  function isServiceNameSelected(serviceName) {
+    if (!servicesConfig || !servicesConfig.services) return false;
+    
+    // Get all service IDs for this service name
+    const serviceIds = [];
+    servicesConfig.services.forEach(service => {
+      if (service.name === serviceName) {
+        if (typeof service.id === 'string') {
+          serviceIds.push(service.id);
+        } else if (Array.isArray(service.id)) {
+          serviceIds.push(...service.id);
+        } else if (typeof service.id === 'number') {
+          serviceIds.push(service.id.toString());
+        }
+      }
+    });
+    
+    // Check if any of these service IDs are selected
+    return serviceIds.some(id => selectedServiceIds.includes(id));
   }
 
   function openIncident(url) {
@@ -266,7 +315,7 @@
         on:keypress={(e) => handleTabKeyPress(e, 'open')}
         role="tab"
         aria-selected={activeTab === 'open'}>
-        Open ({incidents.filter(i => i.status !== 'resolved').length})
+        Open ({displayedIncidents.filter(i => i.status !== 'resolved').length})
       </button>
       <button 
         class="tab {activeTab === 'resolved' ? 'active' : ''}" 
@@ -285,7 +334,7 @@
           on:click={toggleServiceDropdown}
           on:keypress={handleDropdownKeyPress}
           aria-expanded={showServiceDropdown}>
-          Services ({selectedServiceIds.length}/{getUniqueServices().length})
+          Services ({getUniqueServiceNames().filter(name => isServiceNameSelected(name)).length}/{getUniqueServiceNames().length})
           <span class="arrow">{showServiceDropdown ? '▲' : '▼'}</span>
         </button>
         
@@ -295,19 +344,19 @@
               <button class="dropdown-action" on:click={selectAllServices}>Select All</button>
               <button class="dropdown-action" on:click={deselectAllServices}>Clear</button>
             </div>
-            {#each getUniqueServices() as [serviceId, serviceName]}
+            {#each getUniqueServiceNames() as serviceName}
               <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
               <label 
                 class="service-option"
                 on:click|stopPropagation
-                on:keypress={(e) => handleServiceKeyPress(e, serviceId)}
+                on:keypress={(e) => handleServiceKeyPress(e, serviceName)}
                 tabindex="0"
                 role="checkbox"
-                aria-checked={selectedServiceIds.includes(serviceId)}>
+                aria-checked={isServiceNameSelected(serviceName)}>
                 <input 
                   type="checkbox" 
-                  checked={selectedServiceIds.includes(serviceId)}
-                  on:change={() => toggleService(serviceId)}
+                  checked={isServiceNameSelected(serviceName)}
+                  on:change={() => toggleService(serviceName)}
                 />
                 <span>{serviceName}</span>
               </label>
@@ -319,9 +368,9 @@
   </div>
 
   <div class="incidents-list">
-    {#if loading}
+    {#if loading && displayedIncidents.length === 0}
       <div class="loading">Loading incidents...</div>
-    {:else if incidents.length === 0}
+    {:else if displayedIncidents.length === 0}
       <div class="no-incidents">
         {#if activeTab === 'open'}
           No open incidents
@@ -330,7 +379,7 @@
         {/if}
       </div>
     {:else}
-      {#each incidents as incident}
+      {#each displayedIncidents as incident}
         <div 
           class="incident-card" 
           on:click={() => openIncident(incident.html_url)}
@@ -346,7 +395,7 @@
           </div>
           <div class="incident-title">{incident.title}</div>
           <div class="incident-meta">
-            <span class="service-name">{getServiceDisplayName(incident.service_id)}</span>
+            <span class="service-name">{incident.service_summary || getServiceDisplayName(incident.service_id)}</span>
             <span class="incident-time">{formatDate(incident.created_at)}</span>
             {#if incident.alert_count > 0}
               <span class="alert-count">{incident.alert_count} alerts</span>
