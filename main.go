@@ -7,6 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 //go:embed all:frontend/dist
@@ -18,16 +19,16 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:            "PagerOps",
-		Width:            600,
-		Height:           800,
-		MinWidth:         300,
-		MinHeight:        300,
-		DisableResize:    false,
-		Frameless:        false,
-		StartHidden:      false,
+		Title:             "PagerOps",
+		Width:             600,
+		Height:            800,
+		MinWidth:          300,
+		MinHeight:         300,
+		DisableResize:     false,
+		Frameless:         false,
+		StartHidden:       false,
 		HideWindowOnClose: false,
-		AlwaysOnTop:      false,
+		AlwaysOnTop:       false,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -38,10 +39,13 @@ func main() {
 			app,
 		},
 		// CSSDragProperty and CSSDragValue for custom drag handling
-		CSSDragProperty: "--wails-draggable",
-		CSSDragValue:    "drag",
+		CSSDragProperty:    "--wails-draggable",
+		CSSDragValue:       "drag",
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.ERROR,
+		Mac: &mac.Options{
+			Appearance: mac.NSAppearanceNameDarkAqua,
+		},
 	})
 
 	if err != nil {
