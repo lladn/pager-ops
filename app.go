@@ -28,6 +28,7 @@ type App struct {
 	kr               keyring.Keyring
 	logger           *Logger
 	mu               sync.RWMutex // Protect concurrent access
+	pollMu           sync.RWMutex // Separate mutex for polling state
 }
 
 // NewApp creates a new App application struct
@@ -100,7 +101,12 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	a.logger.Info("PagerOps shutting down...")
 	
-	if a.polling {
+	// Check polling state with lock
+	a.pollMu.RLock()
+	isPolling := a.polling
+	a.pollMu.RUnlock()
+	
+	if isPolling {
 		a.StopPolling()
 	}
 	if a.db != nil {
@@ -139,8 +145,13 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 	a.client = client
 	a.logger.Info("API key configured successfully")
 
+	// Check if polling is running with lock
+	a.pollMu.RLock()
+	isPolling := a.polling
+	a.pollMu.RUnlock()
+	
 	// Start polling if not already running
-	if !a.polling {
+	if !isPolling {
 		a.StartPolling()
 	}
 
@@ -249,6 +260,9 @@ func (a *App) GetSelectedServices() []string {
 
 // StartPolling starts the incident polling
 func (a *App) StartPolling() {
+	a.pollMu.Lock()
+	defer a.pollMu.Unlock()
+	
 	if a.polling {
 		return
 	}
@@ -262,7 +276,12 @@ func (a *App) StartPolling() {
 		a.fetchAndUpdateIncidents()
 
 		for range a.pollTicker.C {
-			if !a.polling {
+			// Check polling state with lock
+			a.pollMu.RLock()
+			shouldContinue := a.polling
+			a.pollMu.RUnlock()
+			
+			if !shouldContinue {
 				break
 			}
 			a.fetchAndUpdateIncidents()
@@ -272,9 +291,13 @@ func (a *App) StartPolling() {
 
 // StopPolling stops the incident polling
 func (a *App) StopPolling() {
+	a.pollMu.Lock()
+	defer a.pollMu.Unlock()
+	
 	a.polling = false
 	if a.pollTicker != nil {
 		a.pollTicker.Stop()
+		a.pollTicker = nil
 	}
 	a.logger.Info("Stopped incident polling")
 }
@@ -330,8 +353,14 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// Always fetch fresh data from API first if client is available
-	if a.client != nil {
+	// Don't fetch if polling is active - just return cached data
+	// The polling mechanism is already updating the database every 3 seconds
+	a.pollMu.RLock()
+	isPolling := a.polling
+	a.pollMu.RUnlock()
+	
+	// Only fetch manually if polling is not active
+	if !isPolling && a.client != nil {
 		a.fetchAndUpdateIncidents()
 	}
 
@@ -394,6 +423,7 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 					a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
 				}
 			}
+			
 			// Emit event to update UI
 			runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 		}()
