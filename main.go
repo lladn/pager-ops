@@ -7,7 +7,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 //go:embed all:frontend/dist
@@ -32,7 +31,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 1},
+		BackgroundColour: &options.RGBA{R:0,G:0,B:0,A:255},
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
@@ -43,9 +42,6 @@ func main() {
 		CSSDragValue:       "drag",
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.ERROR,
-		Mac: &mac.Options{
-			Appearance: mac.NSAppearanceNameDarkAqua,
-		},
 	})
 
 	if err != nil {

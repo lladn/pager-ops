@@ -11,7 +11,10 @@
     
     // Log any click events on the app
     document.addEventListener('click', (e) => {
-      LogDebug(`Global click detected on: ${e.target.tagName}, class: ${e.target.className}`);
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        LogDebug(`Global click detected on: ${target.tagName}, class: ${target.className}`);
+      }
     });
   });
   
@@ -25,7 +28,7 @@
 
 <main style="--wails-draggable: no-drag;">
   <div class="app-header">
-    <h1>PagerOps</h1>
+    <h4>PagerOps</h4>
     <button 
       class="settings-btn" 
       on:click={toggleSettings}
@@ -33,9 +36,18 @@
       on:mouseup|preventDefault|stopPropagation
       type="button"
       style="--wails-draggable: no-drag;">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="3"></circle>
-        <path d="M12 1v6m0 6v6m4.22-13.22l4.24 4.24M1.54 1.54l4.24 4.24M20.46 20.46l-4.24-4.24M1.54 20.46l4.24-4.24M23 12h-6m-6 0H1"></path>
+      <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        width="15" 
+        height="15" 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="currentColor" 
+        stroke-width="2" 
+        stroke-linecap="round" 
+        stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09c0-.67-.39-1.28-1-1.51a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06c.45-.45.58-1.12.33-1.82a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09c.67 0 1.28-.39 1.51-1a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06c.45.45 1.12.58 1.82.33h.01c.61-.23 1-.84 1-1.51V3a2 2 0 0 1 4 0v.09c0 .67.39 1.28 1 1.51.7.25 1.37.12 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.45.45-.58 1.12-.33 1.82.23.61.84 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.67 0-1.28.39-1.51 1z"></path>
       </svg>
     </button>
   </div>
@@ -77,7 +89,7 @@
     z-index: 10;
   }
 
-  .app-header h1 {
+  .app-header h4 {
     margin: 0;
     color: #fff;
     font-size: 20px;
