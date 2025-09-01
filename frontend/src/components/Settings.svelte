@@ -57,9 +57,12 @@
   }
 
   function handleFileSelect(event) {
-    const file = event.target.files[0];
-    if (file) {
-      readFile(file);
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.files) {
+      const file = target.files[0];
+      if (file) {
+        readFile(file);
+      }
     }
   }
 
@@ -102,7 +105,8 @@
   }
 
   function closeModal(event) {
-    if (event && event.target && event.target.classList && event.target.classList.contains('modal-overlay')) {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.classList.contains('modal-overlay')) {
       isOpen = false;
     }
   }
@@ -166,25 +170,30 @@
       {#if activeTab === 'general'}
         <div class="settings-section">
           <h3>PagerDuty Configuration</h3>
+          
           <div class="setting-item">
             <!-- svelte-ignore a11y-label-has-associated-control -->
-            <label>API Key</label>
-            {#if !showApiKeyInput}
-              <div class="api-status">✓ Configured</div>
-              <button class="change-btn" on:click={() => showApiKeyInput = true}>
-                Change API Key
+            <label>API Key Status</label>
+            {#if apiKey}
+              <p class="api-status">✓ API Key configured</p>
+              <button class="change-btn" on:click={() => showApiKeyInput = !showApiKeyInput}>
+                {showApiKeyInput ? 'Cancel' : 'Change API Key'}
               </button>
             {:else}
+              <p style="color: #ff6b6b;">No API key configured</p>
+              <button class="change-btn" on:click={() => showApiKeyInput = true}>
+                Configure API Key
+              </button>
+            {/if}
+            
+            {#if showApiKeyInput}
               <div class="api-key-input">
                 <input 
                   type="password" 
                   bind:value={apiKey} 
                   placeholder="Enter your PagerDuty API key"
                 />
-                <div class="button-group">
-                  <button class="save-btn" on:click={saveAPIKey}>Save</button>
-                  <button class="cancel-btn" on:click={() => showApiKeyInput = false}>Cancel</button>
-                </div>
+                <button class="save-btn" on:click={saveAPIKey}>Save</button>
               </div>
             {/if}
           </div>
@@ -195,14 +204,12 @@
         <div class="settings-section">
           <h3>Services Configuration</h3>
           
-          {#if servicesConfig && servicesConfig.services}
-            <div class="config-actions">
-              <button class="remove-config-btn" on:click={removeServicesConfig}>
-                Remove Configuration
-              </button>
-            </div>
+          {#if servicesConfig}
+            <button class="remove-btn" on:click={removeServicesConfig}>
+              Remove Current Configuration
+            </button>
           {/if}
-
+          
           <div 
             class="drop-zone {dragOver ? 'drag-over' : ''}"
             on:drop={handleDrop}
@@ -227,7 +234,7 @@
             </button>
           </div>
           
-          {#if servicesConfig && servicesConfig.services}
+          {#if servicesConfig?.services}
             <div class="services-list">
               <h4>Configured Services ({servicesConfig.services.length}):</h4>
               {#each servicesConfig.services as service}
@@ -357,7 +364,7 @@
     font-size: 14px;
   }
 
-  .change-btn, .upload-btn {
+  .change-btn, .upload-btn, .save-btn {
     background: #007bff;
     color: white;
     border: none;
@@ -365,10 +372,26 @@
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
+    margin-top: 10px;
   }
 
-  .change-btn:hover, .upload-btn:hover {
+  .change-btn:hover, .upload-btn:hover, .save-btn:hover {
     background: #0056b3;
+  }
+
+  .remove-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+
+  .remove-btn:hover {
+    background: #c82333;
   }
 
   .api-status {
@@ -388,66 +411,15 @@
     background: #1a1a1a;
     color: #fff;
     margin-bottom: 10px;
-    box-sizing: border-box;
-  }
-
-  .button-group {
-    display: flex;
-    gap: 10px;
-  }
-
-  .save-btn {
-    background: #4caf50;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .save-btn:hover {
-    background: #45a049;
-  }
-
-  .cancel-btn {
-    background: #666;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .cancel-btn:hover {
-    background: #555;
-  }
-
-  .config-actions {
-    margin-bottom: 20px;
-  }
-
-  .remove-config-btn {
-    background: #dc3545;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .remove-config-btn:hover {
-    background: #c82333;
   }
 
   .drop-zone {
-    border: 2px dashed #666;
+    border: 2px dashed #444;
     border-radius: 8px;
     padding: 40px;
     text-align: center;
     transition: all 0.3s;
+    margin-top: 20px;
   }
 
   .drop-zone.drag-over {
@@ -482,12 +454,11 @@
 
   .service-name {
     color: #fff;
-    font-weight: bold;
+    font-weight: 500;
   }
 
   .service-ids {
     color: #999;
     font-size: 12px;
-    font-family: monospace;
   }
 </style>
