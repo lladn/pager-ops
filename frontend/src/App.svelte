@@ -4,19 +4,23 @@
   import IncidentsPanel from './components/IncidentsPanel.svelte';
   import { LogDebug } from '../wailsjs/runtime/runtime.js';
   
+  
   let showSettings = false;
   
-  onMount(() => {
-    LogDebug("App mounted successfully");
-    
-    // Log any click events on the app
-    document.addEventListener('click', (e) => {
-      const target = e.target;
-      if (target instanceof HTMLElement) {
-        LogDebug(`Global click detected on: ${target.tagName}, class: ${target.className}`);
-      }
-    });
+  onMount(async () => {
+  // Add a small delay to ensure Wails runtime is ready
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  LogDebug("App mounted successfully");
+  
+  // Now set up click handlers
+  document.addEventListener('click', (e) => {
+    const target = e.target;
+    if (target instanceof HTMLElement) {
+      LogDebug(`Global click detected on: ${target.tagName}, class: ${target.className}`);
+    }
   });
+});
   
   function toggleSettings() {
     LogDebug(`Settings toggle clicked, current state: ${showSettings}`);
@@ -31,9 +35,7 @@
     <h4>PagerOps</h4>
     <button 
       class="settings-btn" 
-      on:click={toggleSettings}
-      on:mousedown|preventDefault|stopPropagation
-      on:mouseup|preventDefault|stopPropagation
+      on:click|preventDefault|stopPropagation={toggleSettings}
       type="button"
       style="--wails-draggable: no-drag;">
       <svg 

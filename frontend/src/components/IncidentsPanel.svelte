@@ -58,29 +58,31 @@
     }
   }
 
-  onMount(() => {
-    loadServicesConfig();
-    loadIncidents(true); // Show loading on initial load
+  onMount(async () => {
+  // Wait for runtime to be ready
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  try {
+    // Load services config first
+    servicesConfig = await GetServicesConfig();
+    updateServiceIdToName();
     
-    EventsOn("incidents-updated", (eventType) => {
-      if ((activeTab === 'open' && eventType === 'open') || 
-          (activeTab === 'resolved' && eventType === 'resolved')) {
-        loadIncidents(false); // Don't show loading for background updates
-      }
-    });
-    
-    EventsOn("services-config-updated", () => {
-      loadServicesConfig();
-    });
-    
-    document.addEventListener('click', handleClickOutside);
-  });
-
-  onDestroy(() => {
-    EventsOff("incidents-updated");
-    EventsOff("services-config-updated");
-    document.removeEventListener('click', handleClickOutside);
-  });
+    // Then load incidents
+    await loadIncidents();
+  } catch (error) {
+    console.error('Failed to initialize:', error);
+  }
+  
+  // Set up event listeners after initialization
+  EventsOn('incidents-updated', handleIncidentsUpdated);
+  EventsOn('services-config-updated', handleServicesConfigUpdated);
+  
+  // Cleanup function
+  return () => {
+    EventsOff('incidents-updated');
+    EventsOff('services-config-updated');
+  };
+});
   
   async function loadServicesConfig() {
     try {
