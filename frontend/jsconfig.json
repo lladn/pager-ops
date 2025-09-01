@@ -8,7 +8,6 @@
      * a value or a type, so tell TypeScript to enforce using
      * `import type` instead of `import` for Types.
      */
-    "importsNotUsedAsValues": "error",
     "isolatedModules": true,
     "resolveJsonModule": true,
     /**
@@ -33,6 +32,5 @@
   "include": [
     "src/**/*.d.ts",
     "src/**/*.js",
-    "src/**/*.svelte",
-    "src/App.txt"  ]
+    "src/**/*.svelte"]
 }
