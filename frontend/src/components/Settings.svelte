@@ -1,7 +1,7 @@
 <script>
   import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig, GetServicesConfig } from '../../wailsjs/go/main/App.js';
   import { onMount } from 'svelte';
-  import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime.js';
+  import { EventsOn, EventsOff, EventsEmit } from '../../wailsjs/runtime/runtime.js';
 
   export let isOpen = false;
   
@@ -12,24 +12,37 @@
   let fileInput;
   let dragOver = false;
 
-  onMount(async () => {
-    try {
-      apiKey = await GetAPIKey();
-      servicesConfig = await GetServicesConfig();
-    } catch (err) {
-      console.log('No API key or services config found');
-    }
-
+  onMount(() => {
+    let mounted = true;
+    
+    // Initialize data asynchronously
+    const initialize = async () => {
+      try {
+        apiKey = await GetAPIKey();
+        servicesConfig = await GetServicesConfig();
+      } catch (err) {
+        console.log('No API key or services config found');
+      }
+    };
+    
     // Listen for services config updates
-    EventsOn('services-config-updated', async () => {
+    const handleConfigUpdate = async () => {
+      if (!mounted) return;
       try {
         servicesConfig = await GetServicesConfig();
       } catch {
         servicesConfig = null;
       }
-    });
-
+    };
+    
+    EventsOn('services-config-updated', handleConfigUpdate);
+    
+    // Start initialization
+    initialize();
+    
+    // Return cleanup function
     return () => {
+      mounted = false;
       EventsOff('services-config-updated');
     };
   });
@@ -49,50 +62,65 @@
       try {
         await RemoveServicesConfig();
         servicesConfig = null;
-        alert('Services configuration removed successfully');
+        alert('Services configuration removed');
       } catch (err) {
-        alert('Failed to remove configuration: ' + err);
+        alert('Failed to remove services configuration: ' + err);
       }
     }
   }
 
-  function handleFileSelect(event) {
-    const target = event.target;
-    if (target instanceof HTMLInputElement && target.files) {
-      const file = target.files[0];
-      if (file) {
-        readFile(file);
-      }
+  async function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+      await processFile(file);
     }
   }
 
-  function handleDrop(event) {
-    event.preventDefault();
-    dragOver = false;
-    const file = event.dataTransfer.files[0];
-    if (file && file.type === 'application/json') {
-      readFile(file);
-    }
+  async function processFile(file) {
+  if (file.type !== 'application/json') {
+    alert('Please upload a JSON file');
+    return;
   }
 
-  function readFile(file) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const content = e.target.result;
-        if (typeof content === 'string') {
-          await UploadServicesConfig(content);
-          servicesConfig = JSON.parse(content);
-          alert('Services configuration uploaded successfully');
-        } else {
-          alert('Invalid file format');
-        }
-      } catch (err) {
-        alert('Failed to upload configuration: ' + err);
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const content = e.target.result;
+      
+      // Ensure content is a string
+      if (typeof content !== 'string') {
+        alert('Failed to read file content');
+        return;
       }
-    };
-    reader.readAsText(file);
-  }
+      
+      // Parse JSON to validate it and extract service info immediately
+      const parsedConfig = JSON.parse(content);
+      if (!parsedConfig.services || !Array.isArray(parsedConfig.services)) {
+        alert('Invalid services configuration format');
+        return;
+      }
+      
+      // Upload to backend
+      await UploadServicesConfig(content);
+      
+      // Update local state immediately
+      servicesConfig = parsedConfig;
+      
+      // The backend will emit 'services-config-updated' event
+      // which will trigger the IncidentsPanel to reload
+      
+      alert(`Services configuration uploaded successfully! ${parsedConfig.services.length} services loaded.`);
+    } catch (err) {
+      alert('Failed to process services configuration: ' + err);
+    }
+  };
+  
+  reader.onerror = () => {
+    alert('Failed to read file');
+  };
+  
+  reader.readAsText(file);
+}
 
   function handleDragOver(event) {
     event.preventDefault();
@@ -104,64 +132,49 @@
     dragOver = false;
   }
 
-  function closeModal(event) {
-    const target = event.target;
-    if (target instanceof HTMLElement && target.classList.contains('modal-overlay')) {
-      isOpen = false;
+  async function handleDrop(event) {
+    event.preventDefault();
+    dragOver = false;
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      await processFile(files[0]);
     }
   }
 
-  function closeSettings() {
+  function closeModal() {
     isOpen = false;
   }
 
-  function handleTabKeyPress(event, tabName) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      activeTab = tabName;
-    }
-  }
-
-  function handleCloseKeyPress(event) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      closeSettings();
+  function handleKeyDown(event) {
+    if (event.key === 'Escape') {
+      closeModal();
     }
   }
 </script>
 
 {#if isOpen}
-<div class="modal-overlay" 
-     on:click={closeModal}
-     on:keypress={(e) => e.key === 'Escape' && closeSettings()}
-     role="dialog"
-     aria-modal="true"
-     aria-label="Settings">
+<div class="modal-overlay" on:click={closeModal} on:keydown={handleKeyDown}>
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <div class="modal-content" on:click|stopPropagation>
     <div class="modal-header">
       <h2>Settings</h2>
-      <button class="close-button" 
-              on:click={closeSettings}
-              on:keypress={handleCloseKeyPress}
-              aria-label="Close settings">×</button>
+      <button class="close-button" on:click={closeModal} type="button">
+        ×
+      </button>
     </div>
     
     <div class="tabs">
       <button 
         class="tab {activeTab === 'general' ? 'active' : ''}" 
         on:click={() => activeTab = 'general'}
-        on:keypress={(e) => handleTabKeyPress(e, 'general')}
-        role="tab"
-        aria-selected={activeTab === 'general'}>
+        type="button">
         General
       </button>
       <button 
         class="tab {activeTab === 'services' ? 'active' : ''}" 
         on:click={() => activeTab = 'services'}
-        on:keypress={(e) => handleTabKeyPress(e, 'services')}
-        role="tab"
-        aria-selected={activeTab === 'services'}>
+        type="button">
         Services
       </button>
     </div>
@@ -169,20 +182,20 @@
     <div class="tab-content">
       {#if activeTab === 'general'}
         <div class="settings-section">
-          <h3>PagerDuty Configuration</h3>
+          <h3>PagerDuty API Configuration</h3>
           
           <div class="setting-item">
             <!-- svelte-ignore a11y-label-has-associated-control -->
             <label>API Key Status</label>
             {#if apiKey}
               <p class="api-status">✓ API Key configured</p>
-              <button class="change-btn" on:click={() => showApiKeyInput = !showApiKeyInput}>
-                {showApiKeyInput ? 'Cancel' : 'Change API Key'}
+              <button class="change-btn" on:click={() => showApiKeyInput = !showApiKeyInput} type="button">
+                Change API Key
               </button>
             {:else}
-              <p style="color: #ff6b6b;">No API key configured</p>
-              <button class="change-btn" on:click={() => showApiKeyInput = true}>
-                Configure API Key
+              <p style="color: #ff6b6b;">No API Key configured</p>
+              <button class="change-btn" on:click={() => showApiKeyInput = true} type="button">
+                Add API Key
               </button>
             {/if}
             
@@ -193,7 +206,9 @@
                   bind:value={apiKey} 
                   placeholder="Enter your PagerDuty API key"
                 />
-                <button class="save-btn" on:click={saveAPIKey}>Save</button>
+                <button class="save-btn" on:click={saveAPIKey} type="button">
+                  Save API Key
+                </button>
               </div>
             {/if}
           </div>
@@ -205,7 +220,7 @@
           <h3>Services Configuration</h3>
           
           {#if servicesConfig}
-            <button class="remove-btn" on:click={removeServicesConfig}>
+            <button class="remove-btn" on:click={removeServicesConfig} type="button">
               Remove Current Configuration
             </button>
           {/if}
@@ -242,11 +257,11 @@
                   <span class="service-name">{service.name}</span>
                   <span class="service-ids">
                     {#if typeof service.id === 'string'}
-                      {service.id}
+                      ID: {service.id}
                     {:else if Array.isArray(service.id)}
-                      {service.id.join(', ')}
+                      IDs: {service.id.join(', ')}
                     {:else}
-                      {service.id}
+                      ID: {service.id}
                     {/if}
                   </span>
                 </div>
@@ -446,19 +461,41 @@
   .service-item {
     display: flex;
     justify-content: space-between;
-    padding: 10px;
+    align-items: center;
+    padding: 12px;
     background: #1a1a1a;
-    border-radius: 4px;
+    border-radius: 6px;
     margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .service-name {
     color: #fff;
     font-weight: 500;
+    font-size: 14px;
   }
 
   .service-ids {
-    color: #999;
+    color: #6b7280;
     font-size: 12px;
+    font-family: monospace;
+  }
+
+  /* Custom scrollbar for modal */
+  .modal-content::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .modal-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .modal-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  .modal-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.15);
   }
 </style>
