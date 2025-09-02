@@ -83,55 +83,71 @@
   }
 
   onMount(() => {
-    let mounted = true;
-    
-    // Initialize data asynchronously
-    const initialize = async () => {
-      // Wait for runtime to be ready
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      if (!mounted) return;
-      
-      // Initialize data
+  let mounted = true;
+  let runtimeReady = false;
+  
+  // Initialize data asynchronously
+  const initialize = async () => {
+    // Wait for runtime to be ready by testing a call
+    let attempts = 0;
+    while (attempts < 50 && mounted) {
       try {
-        // Try to load services config
-        servicesConfig = await GetServicesConfig();
-        updateServiceIdToName();
-        
-        // Initialize with all services selected if config exists
-        if (servicesConfig?.services) {
-          selectedServiceIds = getUniqueServices().map(([id]) => id);
-          await updateSelectedServicesBackend();
-        }
+        // Test runtime availability
+        await GetServicesConfig();
+        runtimeReady = true;
+        break;
       } catch (error) {
-        // No services config yet, that's ok
-        console.log('No services config found yet');
-        servicesConfig = null;
+        // If it's a real error (not runtime not ready), break
+        if (error && error.toString().includes('no services')) {
+          runtimeReady = true;
+          break;
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
+    }
+    
+    if (!mounted || !runtimeReady) {
+      console.error('Failed to initialize runtime');
+      return;
+    }
+    
+    // Initialize data
+    try {
+      servicesConfig = await GetServicesConfig();
+      updateServiceIdToName();
       
-      // Load incidents (open tab by default)
-      activeTab = 'open';
-      await loadIncidents();
-    };
+      if (servicesConfig?.services) {
+        selectedServiceIds = getUniqueServices().map(([id]) => id);
+        await updateSelectedServicesBackend();
+      }
+    } catch (error) {
+      console.log('No services config found yet');
+      servicesConfig = null;
+    }
     
-    // Set up event listeners immediately (synchronously)
-    EventsOn('incidents-updated', handleIncidentsUpdated);
-    EventsOn('services-config-updated', handleServicesConfigUpdated);
-    
-    // Set up click outside listener
-    document.addEventListener('click', handleClickOutside);
-    
-    // Start initialization
-    initialize();
-    
-    // Return cleanup function (synchronously)
-    return () => {
-      mounted = false;
-      EventsOff('incidents-updated');
-      EventsOff('services-config-updated');
-      document.removeEventListener('click', handleClickOutside);
-    };
-  });
+    activeTab = 'open';
+    await loadIncidents();
+  };
+  
+  // Set up event listeners immediately
+  EventsOn('incidents-updated', handleIncidentsUpdated);
+  EventsOn('services-config-updated', handleServicesConfigUpdated);
+  
+  // Set up click outside listener
+  document.addEventListener('click', handleClickOutside);
+  
+  // Start initialization
+  initialize();
+  
+  // Return cleanup function
+  return () => {
+    mounted = false;
+    EventsOff('incidents-updated');
+    EventsOff('services-config-updated');
+    document.removeEventListener('click', handleClickOutside);
+  };
+});
   
   onDestroy(() => {
     // Additional cleanup if needed

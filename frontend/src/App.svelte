@@ -2,27 +2,49 @@
   import { onMount } from 'svelte';
   import Settings from './components/Settings.svelte';
   import IncidentsPanel from './components/IncidentsPanel.svelte';
-  import { LogDebug } from '../wailsjs/runtime/runtime.js';
-  
+  import { LogDebug, EventsEmit } from '../wailsjs/runtime/runtime.js';
   
   let showSettings = false;
+  let runtimeReady = false;
   
   onMount(async () => {
-  // Add a small delay to ensure Wails runtime is ready
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  LogDebug("App mounted successfully");
-  
-  // Now set up click handlers
-  document.addEventListener('click', (e) => {
-    const target = e.target;
-    if (target instanceof HTMLElement) {
-      LogDebug(`Global click detected on: ${target.tagName}, class: ${target.className}`);
+    // Wait for DOM and Wails runtime to be ready
+    const waitForRuntime = async () => {
+      let attempts = 0;
+      while (attempts < 50) {
+        try {
+          // Try to call a runtime function to test if it's ready
+          await EventsEmit('app:ready');
+          runtimeReady = true;
+          LogDebug("App mounted successfully");
+          return true;
+        } catch (error) {
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+      console.error("Failed to initialize Wails runtime");
+      return false;
+    };
+    
+    const ready = await waitForRuntime();
+    
+    if (ready) {
+      // Set up click handlers after runtime is ready
+      document.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target instanceof HTMLElement) {
+          LogDebug(`Global click detected on: ${target.tagName}, class: ${target.className}`);
+        }
+      });
     }
   });
-});
   
   function toggleSettings() {
+    if (!runtimeReady) {
+      console.log('Runtime not ready yet');
+      return;
+    }
     LogDebug(`Settings toggle clicked, current state: ${showSettings}`);
     console.log('Settings button clicked, current state:', showSettings);
     showSettings = !showSettings;

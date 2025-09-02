@@ -13,39 +13,63 @@
   let dragOver = false;
 
   onMount(() => {
-    let mounted = true;
-    
-    // Initialize data asynchronously
-    const initialize = async () => {
+  let mounted = true;
+  let runtimeReady = false;
+  
+  // Initialize data asynchronously  
+  const initialize = async () => {
+    // Test runtime readiness
+    let attempts = 0;
+    while (attempts < 50 && mounted) {
       try {
-        apiKey = await GetAPIKey();
-        servicesConfig = await GetServicesConfig();
-      } catch (err) {
-        console.log('No API key or services config found');
+        await GetAPIKey();
+        runtimeReady = true;
+        break;
+      } catch (error) {
+        // Check if it's a real error or just no key set
+        if (error && (error.toString().includes('no API key') || error.toString().includes('not found'))) {
+          runtimeReady = true;
+          break;
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
-    };
+    }
     
-    // Listen for services config updates
-    const handleConfigUpdate = async () => {
-      if (!mounted) return;
-      try {
-        servicesConfig = await GetServicesConfig();
-      } catch {
-        servicesConfig = null;
-      }
-    };
+    if (!mounted || !runtimeReady) {
+      console.error('Failed to initialize runtime');
+      return;
+    }
     
-    EventsOn('services-config-updated', handleConfigUpdate);
-    
-    // Start initialization
-    initialize();
-    
-    // Return cleanup function
-    return () => {
-      mounted = false;
-      EventsOff('services-config-updated');
-    };
-  });
+    try {
+      apiKey = await GetAPIKey();
+      servicesConfig = await GetServicesConfig();
+    } catch (err) {
+      console.log('No API key or services config found');
+    }
+  };
+  
+  // Listen for services config updates
+  const handleConfigUpdate = async () => {
+    if (!mounted) return;
+    try {
+      servicesConfig = await GetServicesConfig();
+    } catch {
+      servicesConfig = null;
+    }
+  };
+  
+  EventsOn('services-config-updated', handleConfigUpdate);
+  
+  // Start initialization
+  initialize();
+  
+  // Return cleanup function
+  return () => {
+    mounted = false;
+    EventsOff('services-config-updated');
+  };
+});
 
   async function saveAPIKey() {
     try {
