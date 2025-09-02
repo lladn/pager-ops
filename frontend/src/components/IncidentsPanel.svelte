@@ -58,45 +58,85 @@
     }
   }
 
-  onMount(async () => {
-  // Wait for runtime to be ready
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  try {
-    // Load services config first
-    servicesConfig = await GetServicesConfig();
-    updateServiceIdToName();
-    
-    // Then load incidents
-    await loadIncidents();
-  } catch (error) {
-    console.error('Failed to initialize:', error);
+  async function handleIncidentsUpdated(tabType) {
+    // Only reload if the update is for the current active tab
+    if ((tabType === 'open' && activeTab === 'open') || 
+        (tabType === 'resolved' && activeTab === 'resolved')) {
+      await loadIncidents(false); // Don't show loading spinner for background updates
+    }
   }
-  
-  // Set up event listeners after initialization
-  EventsOn('incidents-updated', handleIncidentsUpdated);
-  EventsOn('services-config-updated', handleServicesConfigUpdated);
-  
-  // Cleanup function
-  return () => {
-    EventsOff('incidents-updated');
-    EventsOff('services-config-updated');
-  };
-});
-  
-  async function loadServicesConfig() {
+
+  async function handleServicesConfigUpdated() {
     try {
       servicesConfig = await GetServicesConfig();
       updateServiceIdToName();
+      
+      // When services config is updated, select all services by default
       if (servicesConfig?.services) {
         selectedServiceIds = getUniqueServices().map(([id]) => id);
         await updateSelectedServicesBackend();
+        await loadIncidents(true);
       }
-    } catch (err) {
-      console.log('No services config found');
-      servicesConfig = null;
+    } catch (error) {
+      console.error('Failed to handle services config update:', error);
     }
   }
+
+  onMount(() => {
+    let mounted = true;
+    
+    // Initialize data asynchronously
+    const initialize = async () => {
+      // Wait for runtime to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (!mounted) return;
+      
+      // Initialize data
+      try {
+        // Try to load services config
+        servicesConfig = await GetServicesConfig();
+        updateServiceIdToName();
+        
+        // Initialize with all services selected if config exists
+        if (servicesConfig?.services) {
+          selectedServiceIds = getUniqueServices().map(([id]) => id);
+          await updateSelectedServicesBackend();
+        }
+      } catch (error) {
+        // No services config yet, that's ok
+        console.log('No services config found yet');
+        servicesConfig = null;
+      }
+      
+      // Load incidents (open tab by default)
+      activeTab = 'open';
+      await loadIncidents();
+    };
+    
+    // Set up event listeners immediately (synchronously)
+    EventsOn('incidents-updated', handleIncidentsUpdated);
+    EventsOn('services-config-updated', handleServicesConfigUpdated);
+    
+    // Set up click outside listener
+    document.addEventListener('click', handleClickOutside);
+    
+    // Start initialization
+    initialize();
+    
+    // Return cleanup function (synchronously)
+    return () => {
+      mounted = false;
+      EventsOff('incidents-updated');
+      EventsOff('services-config-updated');
+      document.removeEventListener('click', handleClickOutside);
+    };
+  });
+  
+  onDestroy(() => {
+    // Additional cleanup if needed
+    document.removeEventListener('click', handleClickOutside);
+  });
 
   function handleClickOutside(event) {
     if (dropdownRef && !dropdownRef.contains(event.target)) {
@@ -220,6 +260,49 @@
     return Array.from(uniqueServices.entries());
   }
 
+  function getUniqueServiceNames() {
+    const uniqueNames = new Map();
+    if (servicesConfig?.services) {
+      servicesConfig.services.forEach(service => {
+        if (!uniqueNames.has(service.name)) {
+          uniqueNames.set(service.name, []);
+        }
+        
+        if (typeof service.id === 'string') {
+          uniqueNames.get(service.name).push(service.id);
+        } else if (Array.isArray(service.id)) {
+          uniqueNames.get(service.name).push(...service.id);
+        } else if (typeof service.id === 'number') {
+          uniqueNames.get(service.name).push(service.id.toString());
+        }
+      });
+    }
+    return uniqueNames;
+  }
+
+  async function toggleServiceByName(serviceName) {
+    const serviceNames = getUniqueServiceNames();
+    const serviceIds = serviceNames.get(serviceName) || [];
+    
+    const allSelected = serviceIds.every(id => selectedServiceIds.includes(id));
+    
+    if (allSelected) {
+      selectedServiceIds = selectedServiceIds.filter(id => !serviceIds.includes(id));
+    } else {
+      const newIds = serviceIds.filter(id => !selectedServiceIds.includes(id));
+      selectedServiceIds = [...selectedServiceIds, ...newIds];
+    }
+    
+    await updateSelectedServicesBackend();
+    loadIncidents(true);
+  }
+
+  function isServiceNameSelected(serviceName) {
+    const serviceNames = getUniqueServiceNames();
+    const serviceIds = serviceNames.get(serviceName) || [];
+    return serviceIds.length > 0 && serviceIds.every(id => selectedServiceIds.includes(id));
+  }
+
   function openIncident(url) {
     BrowserOpenURL(url);
   }
@@ -254,57 +337,62 @@
       </button>
     </div>
     
-    {#if servicesConfig?.services?.length > 0}
-      <div class="service-filter" bind:this={dropdownRef}>
-        <button 
-          class="filter-button" 
-          on:click={toggleServiceDropdown}
-          on:keypress={handleDropdownKeyPress}
-          aria-expanded={showServiceDropdown}>
-          <svg class="filter-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M2 4H14M4 8H12M6 12H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span class="filter-text">
+    <div class="service-filter" bind:this={dropdownRef}>
+      <button 
+        class="filter-button" 
+        on:click={toggleServiceDropdown}
+        on:keypress={handleDropdownKeyPress}
+        aria-expanded={showServiceDropdown}>
+        <svg class="filter-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4H14M4 8H12M6 12H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="filter-text">
+          {#if servicesConfig?.services?.length > 0}
             {selectedServiceIds.length === getUniqueServices().length 
               ? 'All services' 
-              : `${selectedServiceIds.length} services`}
-          </span>
-          <svg class="dropdown-arrow {showServiceDropdown ? 'rotated' : ''}" width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        
-        {#if showServiceDropdown}
-          <div class="dropdown-menu">
+              : `${selectedServiceIds.length} selected`}
+          {:else}
+            No services
+          {/if}
+        </span>
+        <svg class="dropdown-arrow {showServiceDropdown ? 'rotated' : ''}" width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      
+      {#if showServiceDropdown}
+        <div class="dropdown-menu">
+          {#if servicesConfig?.services?.length > 0}
             <div class="dropdown-actions">
               <button class="dropdown-action" on:click={selectAllServices}>All</button>
               <button class="dropdown-action" on:click={deselectAllServices}>None</button>
             </div>
             <div class="dropdown-divider"></div>
-            <div class="dropdown-options">
-              {#each getUniqueServices() as [serviceId, serviceName]}
-                <!-- svelte-ignore a11y-no-noninteractive-element-to-interactive-role -->
-                <label 
-                  class="service-option"
-                  on:click|stopPropagation
-                  on:keypress={(e) => handleServiceKeyPress(e, serviceId)}
-                  tabindex="0"
-                  role="checkbox"
-                  aria-checked={selectedServiceIds.includes(serviceId)}>
-                  <input 
-                    type="checkbox" 
-                    checked={selectedServiceIds.includes(serviceId)}
-                    on:change={() => toggleService(serviceId)}
-                    class="service-checkbox"
-                  />
-                  <span class="service-name">{serviceName}</span>
-                </label>
+            <div class="service-pills">
+              {#each Array.from(getUniqueServiceNames().keys()) as serviceName}
+                <button 
+                  class="service-pill {isServiceNameSelected(serviceName) ? 'selected' : ''}"
+                  on:click={() => toggleServiceByName(serviceName)}
+                  on:keypress={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleServiceByName(serviceName);
+                    }
+                  }}
+                  aria-pressed={isServiceNameSelected(serviceName)}>
+                  {serviceName}
+                </button>
               {/each}
             </div>
-          </div>
-        {/if}
-      </div>
-    {/if}
+          {:else}
+            <div class="no-services">
+              <p>No services configured</p>
+              <p class="hint">Upload a services JSON file in Settings</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="incidents-list">
@@ -363,7 +451,7 @@
               <h3 class="incident-title">{incident.title}</h3>
               
               <div class="incident-footer">
-                <span class="incident-service">{getServiceDisplayName(incident.service_id)}</span>
+                <span class="incident-service">{incident.service_summary || getServiceDisplayName(incident.service_id)}</span>
                 {#if incident.alert_count > 0}
                   <div class="incident-alerts">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -486,6 +574,7 @@
     top: calc(100% + 8px);
     right: 0;
     min-width: 240px;
+    max-width: 360px;
     background: #141414;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
@@ -523,36 +612,49 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
-  .dropdown-options {
+  .service-pills {
+    padding: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
     max-height: 300px;
     overflow-y: auto;
-    padding: 8px;
   }
 
-  .service-option {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.2s ease;
-  }
-
-  .service-option:hover {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .service-checkbox {
-    width: 16px;
-    height: 16px;
-    accent-color: #3b82f6;
-    cursor: pointer;
-  }
-
-  .service-name {
-    color: #e5e7eb;
+  .service-pill {
+    padding: 6px 14px;
+    border-radius: 16px;
     font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+  }
+
+  .service-pill:hover {
+    transform: scale(1.05);
+  }
+
+  .service-pill.selected {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+  }
+
+  .no-services {
+    padding: 20px;
+    text-align: center;
+    color: #6b7280;
+  }
+
+  .no-services p {
+    margin: 0 0 8px 0;
+  }
+
+  .no-services .hint {
+    font-size: 12px;
+    color: #4b5563;
   }
 
   .incidents-list {
@@ -706,25 +808,24 @@
     font-weight: 500;
   }
 
-  /* Custom scrollbar */
   .incidents-list::-webkit-scrollbar,
-  .dropdown-options::-webkit-scrollbar {
+  .service-pills::-webkit-scrollbar {
     width: 6px;
   }
 
   .incidents-list::-webkit-scrollbar-track,
-  .dropdown-options::-webkit-scrollbar-track {
+  .service-pills::-webkit-scrollbar-track {
     background: transparent;
   }
 
   .incidents-list::-webkit-scrollbar-thumb,
-  .dropdown-options::-webkit-scrollbar-thumb {
+  .service-pills::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.1);
     border-radius: 3px;
   }
 
   .incidents-list::-webkit-scrollbar-thumb:hover,
-  .dropdown-options::-webkit-scrollbar-thumb:hover {
+  .service-pills::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.15);
   }
 </style>
