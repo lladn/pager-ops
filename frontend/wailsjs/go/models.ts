@@ -13,6 +13,7 @@ export namespace database {
 	    // Go type: time
 	    updated_at: any;
 	    alert_count: number;
+	    urgency: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new IncidentData(source);
@@ -30,6 +31,7 @@ export namespace database {
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.alert_count = source["alert_count"];
+	        this.urgency = source["urgency"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -1,7 +1,13 @@
+// frontend/src/stores/incidents.ts
 import { writable, derived } from 'svelte/store';
-import type { IncidentData, ServicesConfig, ServiceConfig } from '../../wailsjs/go/models';
+import { database, store } from '../../wailsjs/go/models';
 import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, GetSelectedServices } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+
+// Type aliases for cleaner code
+type IncidentData = database.IncidentData;
+type ServicesConfig = store.ServicesConfig;
+type ServiceConfig = store.ServiceConfig;
 
 // Store for all incidents
 export const openIncidents = writable<IncidentData[]>([]);
@@ -18,13 +24,19 @@ export const settingsTab = writable<'api' | 'services'>('api');
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
+// Store for polling state to prevent loading flicker
+let isPolling = false;
+
 // Derived store for incident counts
 export const openCount = derived(openIncidents, $incidents => $incidents.length);
 export const resolvedCount = derived(resolvedIncidents, $incidents => $incidents.length);
 
 // Load incidents based on selected services
 export async function loadOpenIncidents() {
-    loading.set(true);
+    // Don't show loading state if polling
+    if (!isPolling) {
+        loading.set(true);
+    }
     error.set(null);
     try {
         const services = await GetSelectedServices();
@@ -34,12 +46,17 @@ export async function loadOpenIncidents() {
         error.set(err?.toString() || 'Failed to load open incidents');
         openIncidents.set([]);
     } finally {
-        loading.set(false);
+        if (!isPolling) {
+            loading.set(false);
+        }
     }
 }
 
 export async function loadResolvedIncidents() {
-    loading.set(true);
+    // Don't show loading state if polling
+    if (!isPolling) {
+        loading.set(true);
+    }
     error.set(null);
     try {
         const services = await GetSelectedServices();
@@ -49,7 +66,9 @@ export async function loadResolvedIncidents() {
         error.set(err?.toString() || 'Failed to load resolved incidents');
         resolvedIncidents.set([]);
     } finally {
-        loading.set(false);
+        if (!isPolling) {
+            loading.set(false);
+        }
     }
 }
 
@@ -69,11 +88,16 @@ export async function loadServicesConfig() {
 export function initializeEventListeners() {
     // Listen for incident updates from backend polling
     EventsOn('incidents-updated', (type: string) => {
+        isPolling = true;
         if (type === 'open') {
             loadOpenIncidents();
         } else if (type === 'resolved') {
             loadResolvedIncidents();
         }
+        // Reset polling flag after a short delay
+        setTimeout(() => {
+            isPolling = false;
+        }, 100);
     });
 
     // Listen for services config updates
@@ -104,7 +128,12 @@ export function formatTime(date: string | Date): string {
 
 // Get urgency level from incident
 export function getUrgency(incident: IncidentData): 'high' | 'low' | 'medium' {
-    // Determine urgency based on title or other criteria
+    // Check urgency field if available from backend
+    if (incident.urgency) {
+        return incident.urgency as 'high' | 'low' | 'medium';
+    }
+    
+    // Fallback to title-based determination
     const title = incident.title.toLowerCase();
     if (title.includes('critical') || title.includes('down') || title.includes('failure')) {
         return 'high';

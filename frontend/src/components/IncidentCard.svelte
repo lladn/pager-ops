@@ -1,10 +1,11 @@
 <script lang="ts">
-    import type { IncidentData } from '../../wailsjs/go/models';
+    import { database } from '../../wailsjs/go/models';
     import { formatTime, getUrgency } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     
+    type IncidentData = database.IncidentData;
+    
     export let incident: IncidentData;
-    export let showAssignee = false;
     
     $: urgency = getUrgency(incident);
     $: statusColor = getStatusColor(incident.status);
@@ -35,9 +36,10 @@
     }
 </script>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class="incident-card" on:click={openIncident} role="button" tabindex="0">
     <div class="incident-header">
-        <h3 class="incident-title">{incident.title}</h3>
+        <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
         <div class="incident-badges">
             <span class="status-badge {statusColor}">
                 {#if incident.status === 'triggered'}
@@ -57,21 +59,11 @@
         <span class="service-name">{incident.service_summary || 'Unknown Service'}</span>
         <span class="separator">•</span>
         <span class="incident-time">{formatTime(incident.created_at)}</span>
+        {#if incident.alert_count > 0}
+            <span class="separator">•</span>
+            <span class="alert-count">{incident.alert_count} alert{incident.alert_count !== 1 ? 's' : ''}</span>
+        {/if}
     </div>
-    
-    {#if showAssignee}
-        <div class="incident-assignee">
-            <span class="assignee-label">Assigned to:</span>
-            <span class="assignee-name">John Doe</span>
-        </div>
-    {/if}
-    
-    {#if incident.status === 'resolved'}
-        <div class="incident-resolver">
-            <span class="resolver-label">Resolved by:</span>
-            <span class="resolver-name">Jane Smith</span>
-        </div>
-    {/if}
 </div>
 
 <style>
@@ -83,6 +75,7 @@
         margin-bottom: 12px;
         cursor: pointer;
         transition: all 0.2s ease;
+        position: relative;
     }
     
     .incident-card:hover {
@@ -95,15 +88,21 @@
         justify-content: space-between;
         align-items: flex-start;
         margin-bottom: 12px;
+        gap: 12px;
     }
     
     .incident-title {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
         color: #111827;
         margin: 0;
         flex: 1;
-        margin-right: 12px;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
     }
     
     .incident-badges {
@@ -119,12 +118,13 @@
         padding: 4px 10px;
         border-radius: 16px;
         color: white;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
+        white-space: nowrap;
     }
     
     .status-icon {
-        font-size: 12px;
+        font-size: 11px;
     }
     
     .bg-red-500 { background-color: #ef4444; }
@@ -135,8 +135,10 @@
     .urgency-badge {
         padding: 4px 10px;
         border-radius: 16px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
+        text-transform: uppercase;
+        white-space: nowrap;
     }
     
     .urgency-high {
@@ -158,7 +160,8 @@
         display: flex;
         align-items: center;
         color: #6b7280;
-        font-size: 14px;
+        font-size: 13px;
+        flex-wrap: wrap;
     }
     
     .service-name {
@@ -169,21 +172,8 @@
         margin: 0 8px;
     }
     
-    .incident-assignee,
-    .incident-resolver {
-        margin-top: 8px;
-        color: #6b7280;
-        font-size: 14px;
-    }
-    
-    .assignee-label,
-    .resolver-label {
-        margin-right: 4px;
-    }
-    
-    .assignee-name,
-    .resolver-name {
+    .alert-count {
         font-weight: 500;
-        color: #374151;
+        color: #dc2626;
     }
 </style>

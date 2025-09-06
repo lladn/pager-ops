@@ -1,6 +1,8 @@
+<!-- frontend/src/components/Settings.svelte -->
 <script lang="ts">
     import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig } from '../stores/incidents';
     import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig } from '../../wailsjs/go/main/App';
+    import { store } from '../../wailsjs/go/models';
     
     let apiKey = '';
     let newServiceId = '';
@@ -51,18 +53,32 @@
         
         try {
             const config = $servicesConfig || { services: [] };
-            const newService = { id: newServiceId, name: newServiceName };
             
-            // Check if service already exists
-            const exists = config.services.some(s => {
-                const id = typeof s.id === 'string' ? s.id : String(s.id);
-                return id === newServiceId;
-            });
+            // Parse multiple service IDs separated by commas
+            const serviceIds = newServiceId.split(',').map(id => id.trim()).filter(id => id);
             
-            if (exists) {
-                errorMessage = 'Service with this ID already exists';
-                return;
+            // Check if any of the service IDs already exist
+            for (const serviceId of serviceIds) {
+                const exists = config.services.some((s: store.ServiceConfig) => {
+                    if (typeof s.id === 'string') {
+                        return s.id === serviceId;
+                    } else if (Array.isArray(s.id)) {
+                        return s.id.includes(serviceId);
+                    }
+                    return false;
+                });
+                
+                if (exists) {
+                    errorMessage = `Service with ID ${serviceId} already exists`;
+                    return;
+                }
             }
+            
+            // Create a single service entry with multiple IDs if needed
+            const newService = {
+                id: serviceIds.length === 1 ? serviceIds[0] : serviceIds,
+                name: newServiceName
+            };
             
             config.services.push(newService);
             await UploadServicesConfig(JSON.stringify(config));
@@ -70,21 +86,20 @@
             
             newServiceId = '';
             newServiceName = '';
-            successMessage = 'Service added successfully';
+            successMessage = `Service "${newServiceName}" added successfully with ${serviceIds.length} ID(s)`;
             setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = err?.toString() || 'Failed to add service';
         }
     }
     
-    async function removeService(serviceId: string) {
+    async function removeService(service: store.ServiceConfig) {
         try {
             if (!$servicesConfig) return;
             
             const config = {
-                services: $servicesConfig.services.filter(s => {
-                    const id = typeof s.id === 'string' ? s.id : String(s.id);
-                    return id !== serviceId;
+                services: $servicesConfig.services.filter((s: store.ServiceConfig) => {
+                    return s !== service;
                 })
             };
             
@@ -127,6 +142,15 @@
         errorMessage = '';
         successMessage = '';
     }
+    
+    function getServiceIdDisplay(service: store.ServiceConfig): string {
+        if (typeof service.id === 'string') {
+            return service.id;
+        } else if (Array.isArray(service.id)) {
+            return service.id.join(', ');
+        }
+        return String(service.id);
+    }
 </script>
 
 {#if $settingsOpen}
@@ -149,32 +173,29 @@
                     class:active={$settingsTab === 'api'}
                     on:click={() => settingsTab.set('api')}
                 >
-                    API Configuration
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                    API Key
                 </button>
                 <button 
                     class="tab" 
                     class:active={$settingsTab === 'services'}
                     on:click={() => settingsTab.set('services')}
                 >
-                    Service Management
-                    {#if $servicesConfig}
-                        <span class="preview-badge">Preview</span>
-                    {/if}
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000 2H6a2 2 0 00-2 2v6a2 2 0 002 2h2a1 1 0 100 2H6a4 4 0 01-4-4V5a4 4 0 014-4 1 1 0 100 2z" clip-rule="evenodd" />
+                    </svg>
+                    Services
+                    <span class="preview-badge">PREVIEW</span>
                 </button>
             </div>
-            
-            {#if errorMessage}
-                <div class="alert alert-error">{errorMessage}</div>
-            {/if}
-            
-            {#if successMessage}
-                <div class="alert alert-success">{successMessage}</div>
-            {/if}
             
             <div class="tab-content">
                 {#if $settingsTab === 'api'}
                     <div class="form-group">
-                        <label for="api-key">API Key</label>
+                        <label for="api-key">PagerDuty API Key</label>
                         <input 
                             id="api-key"
                             type="password" 
@@ -186,19 +207,20 @@
                         </button>
                     </div>
                 {:else if $settingsTab === 'services'}
-                    <div class="services-section">
+                    <div class="services-tab">
                         <h3>Add New Service</h3>
+                        <p class="info-text">Add multiple service IDs separated by commas to group them under one name</p>
                         <div class="service-form">
                             <input 
                                 type="text" 
                                 bind:value={newServiceId}
-                                placeholder="e.g., PDBSVC001"
+                                placeholder="e.g., AS8ADUE, LGIEM8NA, FG78AN"
                                 class="service-input"
                             />
                             <input 
                                 type="text" 
                                 bind:value={newServiceName}
-                                placeholder="e.g., Database Service"
+                                placeholder="e.g., Production Services"
                                 class="service-input"
                             />
                             <button class="btn btn-add" on:click={addService}>
@@ -223,16 +245,15 @@
                         <div class="services-list">
                             {#if $servicesConfig && $servicesConfig.services.length > 0}
                                 {#each $servicesConfig.services as service}
-                                    {@const serviceId = typeof service.id === 'string' ? service.id : String(service.id)}
                                     <div class="service-item">
                                         <div class="service-info">
                                             <span class="service-name">{service.name}</span>
                                             <span class="service-badge">active</span>
                                         </div>
-                                        <span class="service-id">ID: {serviceId}</span>
+                                        <span class="service-id">ID: {getServiceIdDisplay(service)}</span>
                                         <button 
                                             class="delete-button"
-                                            on:click={() => removeService(serviceId)}
+                                            on:click={() => removeService(service)}
                                             title="Remove service"
                                         >
                                             <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
@@ -248,9 +269,19 @@
                     </div>
                 {/if}
             </div>
+            
+            {#if errorMessage}
+                <div class="alert alert-error">{errorMessage}</div>
+            {/if}
+            
+            {#if successMessage}
+                <div class="alert alert-success">{successMessage}</div>
+            {/if}
         </div>
     </div>
 {/if}
+
+<!-- Keep all existing styles -->
 
 <style>
     .modal-overlay {

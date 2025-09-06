@@ -20,6 +20,7 @@ type IncidentData struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	AlertCount     int       `json:"alert_count"`
+	Urgency        string    `json:"urgency"`
 }
 
 type DB struct {
@@ -52,18 +53,20 @@ func (db *DB) createTables() error {
 		html_url TEXT,
 		created_at DATETIME,
 		updated_at DATETIME,
-		alert_count INTEGER
+		alert_count INTEGER,
+		urgency TEXT DEFAULT 'low'
 	)`
 
 	_, err := db.conn.Exec(query)
 	return err
 }
 
-func (db *DB) UpsertIncident(incident IncidentData) error {
+func (db *DB) UpsertIncident(
+	incident IncidentData) error {
 	query := `
 	INSERT INTO incidents (incident_id, incident_number, title, service_summary, 
-		service_id, status, html_url, created_at, updated_at, alert_count)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		service_id, status, html_url, created_at, updated_at, alert_count, urgency)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(incident_id) DO UPDATE SET
 		incident_number = excluded.incident_number,
 		title = excluded.title,
@@ -73,7 +76,8 @@ func (db *DB) UpsertIncident(incident IncidentData) error {
 		html_url = excluded.html_url,
 		created_at = excluded.created_at,
 		updated_at = excluded.updated_at,
-		alert_count = excluded.alert_count
+		alert_count = excluded.alert_count,
+		urgency = excluded.urgency
 	`
 
 	_, err := db.conn.Exec(query,
@@ -87,14 +91,18 @@ func (db *DB) UpsertIncident(incident IncidentData) error {
 		incident.CreatedAt,
 		incident.UpdatedAt,
 		incident.AlertCount,
+		incident.Urgency,
 	)
 	return err
 }
 
-func (db *DB) GetOpenIncidents() ([]IncidentData, error) {
+func (db *DB) GetOpenIncidents() (
+	[]IncidentData, error,
+) {
 	query := `
 	SELECT incident_id, incident_number, title, service_summary, 
-		   service_id, status, html_url, created_at, updated_at, alert_count
+		   service_id, status, html_url, created_at, updated_at, alert_count,
+		   COALESCE(urgency, 'low') as urgency
 	FROM incidents
 	WHERE status IN ('triggered', 'acknowledged')
 	ORDER BY created_at DESC
@@ -120,6 +128,7 @@ func (db *DB) GetOpenIncidents() ([]IncidentData, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.AlertCount,
+			&i.Urgency,
 		)
 		if err != nil {
 			return nil, err
@@ -130,7 +139,9 @@ func (db *DB) GetOpenIncidents() ([]IncidentData, error) {
 	return incidents, nil
 }
 
-func (db *DB) GetResolvedIncidents() ([]IncidentData, error) {
+func (db *DB) GetResolvedIncidents() (
+	[]IncidentData, error,
+) {
 	query := `
 	SELECT incident_id, incident_number, title, service_summary, 
 		   service_id, status, html_url, created_at, updated_at, alert_count
@@ -177,7 +188,10 @@ func (db *DB) ClearIncidents() error {
 }
 
 // GetResolvedIncidentsByServices returns resolved incidents filtered by service IDs
-func (db *DB) GetResolvedIncidentsByServices(serviceIDs []string) ([]IncidentData, error) {
+func (db *DB) GetResolvedIncidentsByServices(
+	serviceIDs []string) (
+	[]IncidentData, error,
+) {
 	if len(serviceIDs) == 0 {
 		return []IncidentData{}, nil
 	}
