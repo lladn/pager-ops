@@ -43,7 +43,7 @@
   <header class="app-header">
       <div class="header-content">
           <div class="header-left">
-              <h1 class="app-title">Pager-Ops</h1>
+              <h3 class="app-title">PagerOps</h3>
               <p class="app-subtitle">Monitor and manage your incidents</p>
           </div>
           <div class="header-right">
