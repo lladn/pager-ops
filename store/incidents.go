@@ -7,12 +7,17 @@ import (
 	"pager-ops/database"
 )
 
-func (c *Client) FetchOpenIncidents(serviceIDs []string, userID string) ([]database.IncidentData, error) {
+func (c *Client) FetchOpenIncidents(
+	serviceIDs []string, 
+	userID string) (
+	[]database.IncidentData, error,
+) {
 	var allIncidents []database.IncidentData
 
 	// Fetch incidents filtered by services
 	if len(serviceIDs) > 0 {
-		serviceIncidents, err := c.fetchIncidentsByServices(serviceIDs, []string{"triggered", "acknowledged"})
+		serviceIncidents, err := c.fetchIncidentsByServices(
+			serviceIDs, []string{"triggered", "acknowledged"})
 		if err != nil {
 			return nil, err
 		}
@@ -21,7 +26,8 @@ func (c *Client) FetchOpenIncidents(serviceIDs []string, userID string) ([]datab
 
 	// Fetch incidents assigned to current user
 	if userID != "" {
-		userIncidents, err := c.fetchIncidentsByUser(userID, []string{"triggered", "acknowledged"})
+		userIncidents, err := c.fetchIncidentsByUser(
+			userID, []string{"triggered", "acknowledged"})
 		if err != nil {
 			return nil, err
 		}
@@ -32,7 +38,10 @@ func (c *Client) FetchOpenIncidents(serviceIDs []string, userID string) ([]datab
 	return deduplicateIncidents(allIncidents), nil
 }
 
-func (c *Client) FetchResolvedIncidents(serviceIDs []string) ([]database.IncidentData, error) {
+func (c *Client) FetchResolvedIncidents(
+	serviceIDs []string) (
+	[]database.IncidentData, error,
+) {
 	// Calculate date range for last week
 	until := time.Now()
 	since := until.AddDate(0, 0, -7)
@@ -70,7 +79,11 @@ func (c *Client) FetchResolvedIncidents(serviceIDs []string) ([]database.Inciden
 	return allIncidents, nil
 }
 
-func (c *Client) fetchIncidentsByServices(serviceIDs []string, statuses []string) ([]database.IncidentData, error) {
+func (c *Client) fetchIncidentsByServices(
+	serviceIDs []string, 
+	statuses []string) (
+	[]database.IncidentData, error,
+) {
 	opts := pagerduty.ListIncidentsOptions{
 		Statuses:   statuses,
 		ServiceIDs: serviceIDs,
@@ -102,7 +115,11 @@ func (c *Client) fetchIncidentsByServices(serviceIDs []string, statuses []string
 	return allIncidents, nil
 }
 
-func (c *Client) fetchIncidentsByUser(userID string, statuses []string) ([]database.IncidentData, error) {
+func (c *Client) fetchIncidentsByUser(
+	userID string, 
+	statuses []string) (
+	[]database.IncidentData, error,
+) {
 	opts := pagerduty.ListIncidentsOptions{
 		Statuses: statuses,
 		UserIDs:  []string{userID},
@@ -134,7 +151,8 @@ func (c *Client) fetchIncidentsByUser(userID string, statuses []string) ([]datab
 	return allIncidents, nil
 }
 
-func convertToIncidentData(i pagerduty.Incident) database.IncidentData {
+func convertToIncidentData(
+	i pagerduty.Incident) database.IncidentData {
 	// IncidentNumber is already a uint in PagerDuty API
 	incidentNum := int(i.IncidentNumber)
 	
@@ -155,6 +173,12 @@ func convertToIncidentData(i pagerduty.Incident) database.IncidentData {
 		serviceID = i.Service.ID
 	}
 
+	// Extract urgency from incident
+	urgency := "low"
+	if i.Urgency != "" {
+		urgency = i.Urgency
+	}
+
 	return database.IncidentData{
 		IncidentID:     i.ID,
 		IncidentNumber: incidentNum,
@@ -166,10 +190,12 @@ func convertToIncidentData(i pagerduty.Incident) database.IncidentData {
 		CreatedAt:      createdAtTime,
 		UpdatedAt:      updatedAtTime,
 		AlertCount:     alertCount,
+		Urgency:        urgency,
 	}
 }
 
-func deduplicateIncidents(incidents []database.IncidentData) []database.IncidentData {
+func deduplicateIncidents(
+	incidents []database.IncidentData) []database.IncidentData {
 	seen := make(map[string]bool)
 	result := []database.IncidentData{}
 

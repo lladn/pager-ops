@@ -1,6 +1,7 @@
 <script lang="ts">
     import { servicesConfig, selectedServices, loadOpenIncidents, loadResolvedIncidents } from '../stores/incidents';
     import { SetSelectedServices } from '../../wailsjs/go/main/App';
+    import { store } from '../../wailsjs/go/models';
     
     let isOpen = false;
     let filterText = 'All Services';
@@ -15,16 +16,26 @@
             return;
         }
         
-        if (selected.length === 0 || selected.length === $servicesConfig.services.length) {
+        const allServiceIds = getAllServiceIds();
+        
+        if (selected.length === 0 || selected.length === allServiceIds.length) {
             filterText = 'All Services';
-        } else if (selected.length === 1) {
-            const service = $servicesConfig.services.find(s => {
-                const serviceId = typeof s.id === 'string' ? s.id : String(s.id);
-                return serviceId === selected[0];
-            });
-            filterText = service?.name || 'Unknown Service';
         } else {
-            filterText = `${selected.length} Services`;
+            // Count how many service groups are selected
+            let selectedGroups = 0;
+            for (const service of $servicesConfig.services) {
+                if (isServiceGroupSelected(service)) {
+                    selectedGroups++;
+                }
+            }
+            
+            if (selectedGroups === 1) {
+                // Find the selected service group
+                const selectedService = $servicesConfig.services.find(s => isServiceGroupSelected(s));
+                filterText = selectedService?.name || 'Unknown Service';
+            } else {
+                filterText = `${selectedGroups} Services`;
+            }
         }
     }
     
@@ -36,12 +47,24 @@
         isOpen = false;
     }
     
+    function getAllServiceIds(): string[] {
+        if (!$servicesConfig) return [];
+        
+        const allIds: string[] = [];
+        for (const service of $servicesConfig.services) {
+            if (typeof service.id === 'string') {
+                allIds.push(service.id);
+            } else if (Array.isArray(service.id)) {
+                allIds.push(...service.id);
+            }
+        }
+        return allIds;
+    }
+    
     async function selectAllServices() {
         if (!$servicesConfig) return;
         
-        const allServiceIds = $servicesConfig.services.map(s => 
-            typeof s.id === 'string' ? s.id : String(s.id)
-        );
+        const allServiceIds = getAllServiceIds();
         
         selectedServices.set(allServiceIds);
         await SetSelectedServices(allServiceIds);
@@ -50,12 +73,44 @@
         closeDropdown();
     }
     
-    async function selectService(serviceId: string) {
-        selectedServices.set([serviceId]);
-        await SetSelectedServices([serviceId]);
+    async function toggleServiceGroup(service: store.ServiceConfig) {
+        const serviceIds = typeof service.id === 'string' ? [service.id] : 
+                          Array.isArray(service.id) ? service.id : [String(service.id)];
+        
+        const current = [...$selectedServices];
+        const isCurrentlySelected = isServiceGroupSelected(service);
+        
+        if (isCurrentlySelected) {
+            // Remove all IDs of this service group
+            const filtered = current.filter(id => !serviceIds.includes(id));
+            selectedServices.set(filtered);
+            await SetSelectedServices(filtered);
+        } else {
+            // Add all IDs of this service group
+            const combined = [...new Set([...current, ...serviceIds])];
+            selectedServices.set(combined);
+            await SetSelectedServices(combined);
+        }
+        
         await loadOpenIncidents();
         await loadResolvedIncidents();
-        closeDropdown();
+    }
+    
+    function isServiceGroupSelected(service: store.ServiceConfig): boolean {
+        const serviceIds = typeof service.id === 'string' ? [service.id] : 
+                          Array.isArray(service.id) ? service.id : [String(service.id)];
+        
+        // Check if all IDs in this service group are selected
+        return serviceIds.every(id => $selectedServices.includes(id));
+    }
+    
+    function isServiceGroupPartiallySelected(service: store.ServiceConfig): boolean {
+        const serviceIds = typeof service.id === 'string' ? [service.id] : 
+                          Array.isArray(service.id) ? service.id : [String(service.id)];
+        
+        // Check if some (but not all) IDs in this service group are selected
+        const selectedCount = serviceIds.filter(id => $selectedServices.includes(id)).length;
+        return selectedCount > 0 && selectedCount < serviceIds.length;
     }
     
     // Close dropdown when clicking outside
@@ -82,7 +137,7 @@
             <button class="dropdown-item" on:click={selectAllServices}>
                 <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M5 3a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2H5zm0 2h10v10H5V5z"/>
-                    {#if $selectedServices.length === 0 || ($servicesConfig && $selectedServices.length === $servicesConfig.services.length)}
+                    {#if $selectedServices.length === 0 || $selectedServices.length === getAllServiceIds().length}
                         <path d="M8 11l2 2 4-4" stroke="currentColor" stroke-width="2"/>
                     {/if}
                 </svg>
@@ -91,15 +146,19 @@
             
             {#if $servicesConfig}
                 {#each $servicesConfig.services as service}
-                    {@const serviceId = typeof service.id === 'string' ? service.id : String(service.id)}
-                    <button class="dropdown-item" on:click={() => selectService(serviceId)}>
+                    <button class="dropdown-item" on:click={() => toggleServiceGroup(service)}>
                         <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                             <path d="M5 3a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2H5zm0 2h10v10H5V5z"/>
-                            {#if $selectedServices.includes(serviceId)}
+                            {#if isServiceGroupSelected(service)}
                                 <path d="M8 11l2 2 4-4" stroke="currentColor" stroke-width="2"/>
+                            {:else if isServiceGroupPartiallySelected(service)}
+                                <rect x="7" y="11" width="6" height="2" fill="currentColor"/>
                             {/if}
                         </svg>
                         {service.name}
+                        {#if Array.isArray(service.id)}
+                            <span class="service-count">({service.id.length})</span>
+                        {/if}
                     </button>
                 {/each}
             {:else}
@@ -175,6 +234,12 @@
     
     .dropdown-item:hover {
         background: #f3f4f6;
+    }
+    
+    .service-count {
+        margin-left: auto;
+        font-size: 12px;
+        color: #6b7280;
     }
     
     .dropdown-empty {
