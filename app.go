@@ -38,7 +38,9 @@ func NewApp() *App {
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
-func (a *App) startup(ctx context.Context) {
+func (a *App) startup(
+	ctx context.Context,
+) {
 	a.ctx = ctx
 	
 	// Initialize logger
@@ -98,7 +100,9 @@ func (a *App) startup(ctx context.Context) {
 }
 
 // shutdown is called when the app is closing
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown(
+	ctx context.Context,
+) {
 	a.logger.Info("PagerOps shutting down...")
 	
 	// Check polling state with lock
@@ -118,7 +122,8 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 // ConfigureAPIKey stores the API key in the keychain
-func (a *App) ConfigureAPIKey(apiKey string) error {
+func (a *App) ConfigureAPIKey(
+	apiKey string) error {
 	if a.kr == nil {
 		err := fmt.Errorf("keyring not initialized")
 		a.logger.Error(err.Error())
@@ -159,7 +164,9 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 }
 
 // GetAPIKey retrieves the API key from the keychain
-func (a *App) GetAPIKey() (string, error) {
+func (a *App) GetAPIKey() (
+	string, error,
+) {
 	if a.kr == nil {
 		return "", fmt.Errorf("keyring not initialized")
 	}
@@ -173,7 +180,8 @@ func (a *App) GetAPIKey() (string, error) {
 }
 
 // UploadServicesConfig processes the uploaded services configuration
-func (a *App) UploadServicesConfig(content string) error {
+func (a *App) UploadServicesConfig(
+	content string) error {
 	var config store.ServicesConfig
 	err := json.Unmarshal([]byte(content), &config)
 	if err != nil {
@@ -229,7 +237,9 @@ func (a *App) RemoveServicesConfig() error {
 }
 
 // GetServicesConfig returns the current services configuration
-func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
+func (a *App) GetServicesConfig() (
+	*store.ServicesConfig, error,
+) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -240,7 +250,9 @@ func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
 }
 
 // SetSelectedServices updates the selected services for filtering
-func (a *App) SetSelectedServices(services []string) {
+func (a *App) SetSelectedServices(
+	services []string,
+) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -346,7 +358,10 @@ func (a *App) fetchAndUpdateIncidents() {
 }
 
 // GetOpenIncidents returns open incidents filtered by selected services
-func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, error) {
+func (a *App) GetOpenIncidents(
+	serviceIDs []string) (
+	[]database.IncidentData, error,
+) {
 	if a.db == nil {
 		err := fmt.Errorf("database not initialized")
 		a.logger.Error(err.Error())
@@ -393,7 +408,10 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 }
 
 // GetResolvedIncidents fetches and returns resolved incidents for selected services
-func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData, error) {
+func (a *App) GetResolvedIncidents(
+	serviceIDs []string) (
+	[]database.IncidentData, error,
+) {
 	if a.client == nil {
 		err := fmt.Errorf("PagerDuty client not initialized")
 		a.logger.Warn(err.Error())
@@ -449,7 +467,10 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 }
 
 // ReadFile reads a file and returns its content
-func (a *App) ReadFile(path string) (string, error) {
+func (a *App) ReadFile(
+	path string) (
+	string, error,
+) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to read file %s: %v", path, err))
