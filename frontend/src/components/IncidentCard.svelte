@@ -1,3 +1,4 @@
+<!-- frontend/src/components/IncidentCard.svelte -->
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
     import { formatTime, getUrgency } from '../stores/incidents';
@@ -6,6 +7,7 @@
     type IncidentData = database.IncidentData;
     
     export let incident: IncidentData;
+    export let showAssignee: boolean = false;
     
     $: urgency = getUrgency(incident);
     $: statusColor = getStatusColor(incident.status);
@@ -36,7 +38,6 @@
     }
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class="incident-card" on:click={openIncident} role="button" tabindex="0">
     <div class="incident-header">
         <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
