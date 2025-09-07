@@ -24,9 +24,9 @@
                     <line x1="15" y1="9" x2="15.01" y2="9"></line>
                 </svg>
                 <h3>No {type} incidents</h3>
-                <p>
+                <p style="text-align: center;" >
                     {#if type === 'open'}
-                        All systems operational. Great job!
+                    No News is a Good News 
                     {:else}
                         No resolved incidents in the past week.
                     {/if}
