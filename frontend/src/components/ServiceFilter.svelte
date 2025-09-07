@@ -6,8 +6,14 @@
     let isOpen = false;
     let filterText = 'All Services';
     
+    // Local state for immediate UI updates
+    let localSelectedServices: string[] = [];
+    
+    // Sync local state with store
+    $: localSelectedServices = [...$selectedServices];
+    
     $: if ($servicesConfig) {
-        updateFilterText($selectedServices);
+        updateFilterText(localSelectedServices);
     }
     
     function updateFilterText(selected: string[]) {
@@ -24,14 +30,14 @@
             // Count how many service groups are selected
             let selectedGroups = 0;
             for (const service of $servicesConfig.services) {
-                if (isServiceGroupSelected(service)) {
+                if (isServiceGroupSelected(service, selected)) {
                     selectedGroups++;
                 }
             }
             
             if (selectedGroups === 1) {
                 // Find the selected service group
-                const selectedService = $servicesConfig.services.find(s => isServiceGroupSelected(s));
+                const selectedService = $servicesConfig.services.find(s => isServiceGroupSelected(s, selected));
                 filterText = selectedService?.name || 'Unknown Service';
             } else {
                 filterText = `${selectedGroups} Services`;
@@ -66,50 +72,55 @@
         
         const allServiceIds = getAllServiceIds();
         
+        // Update local state immediately for UI responsiveness
+        localSelectedServices = [...allServiceIds];
+        
+        // Update store and backend
         selectedServices.set(allServiceIds);
         await SetSelectedServices(allServiceIds);
         await loadOpenIncidents();
         await loadResolvedIncidents();
-        closeDropdown();
     }
     
     async function toggleServiceGroup(service: store.ServiceConfig) {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [String(service.id)];
         
-        const current = [...$selectedServices];
-        const isCurrentlySelected = isServiceGroupSelected(service);
+        const isCurrentlySelected = isServiceGroupSelected(service, localSelectedServices);
         
+        // Update local state immediately for UI responsiveness
         if (isCurrentlySelected) {
             // Remove all IDs of this service group
-            const filtered = current.filter(id => !serviceIds.includes(id));
-            selectedServices.set(filtered);
-            await SetSelectedServices(filtered);
+            localSelectedServices = localSelectedServices.filter(id => !serviceIds.includes(id));
         } else {
             // Add all IDs of this service group
-            const combined = [...new Set([...current, ...serviceIds])];
-            selectedServices.set(combined);
-            await SetSelectedServices(combined);
+            localSelectedServices = [...new Set([...localSelectedServices, ...serviceIds])];
         }
+        
+        // Update store and backend
+        selectedServices.set(localSelectedServices);
+        await SetSelectedServices(localSelectedServices);
         
         await loadOpenIncidents();
         await loadResolvedIncidents();
     }
     
-    function isServiceGroupSelected(service: store.ServiceConfig): boolean {
+    function isServiceGroupSelected(service: store.ServiceConfig, selected?: string[]): boolean {
+        const checkSelected = selected || localSelectedServices;
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [String(service.id)];
         
         // Check if all IDs in this service group are selected
-        return serviceIds.every(id => $selectedServices.includes(id));
+        return serviceIds.every(id => checkSelected.includes(id));
     }
     
-    function isServiceGroupPartiallySelected(service: store.ServiceConfig): boolean {
+    function isServiceGroupPartiallySelected(service: store.ServiceConfig, selected?: string[]): boolean {
+        const checkSelected = selected || localSelectedServices;
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [String(service.id)];
         
         // Check if some (but not all) IDs in this service group are selected
-        const selectedCount = serviceIds.filter(id => $selectedServices.includes(id)).length;
+        const selectedCount = serviceIds.filter(id => checkSelected.includes(id)).length;
         return selectedCount > 0 && selectedCount < serviceIds.length;
     }
     
@@ -135,26 +146,41 @@
     {#if isOpen}
         <div class="dropdown-menu">
             <button class="dropdown-item" on:click={selectAllServices}>
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M5 3a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2H5zm0 2h10v10H5V5z"/>
-                    {#if $selectedServices.length === 0 || $selectedServices.length === getAllServiceIds().length}
-                        <path d="M8 11l2 2 4-4" stroke="currentColor" stroke-width="2"/>
+                <div class="checkbox">
+                    {#if localSelectedServices.length === 0 || localSelectedServices.length === getAllServiceIds().length}
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
+                            <path d="M4 8L6.5 10.5L12 5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    {:else}
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <rect x="0.5" y="0.5" width="15" height="15" rx="2" stroke="#D1D5DB"/>
+                        </svg>
                     {/if}
-                </svg>
+                </div>
                 All Services
             </button>
             
             {#if $servicesConfig}
                 {#each $servicesConfig.services as service}
                     <button class="dropdown-item" on:click={() => toggleServiceGroup(service)}>
-                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M5 3a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V5a2 2 0 00-2-2H5zm0 2h10v10H5V5z"/>
-                            {#if isServiceGroupSelected(service)}
-                                <path d="M8 11l2 2 4-4" stroke="currentColor" stroke-width="2"/>
-                            {:else if isServiceGroupPartiallySelected(service)}
-                                <rect x="7" y="11" width="6" height="2" fill="currentColor"/>
+                        <div class="checkbox">
+                            {#if isServiceGroupSelected(service, localSelectedServices)}
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
+                                    <path d="M4 8L6.5 10.5L12 5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            {:else if isServiceGroupPartiallySelected(service, localSelectedServices)}
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
+                                    <rect x="4" y="7" width="8" height="2" fill="white"/>
+                                </svg>
+                            {:else}
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" stroke="#D1D5DB"/>
+                                </svg>
                             {/if}
-                        </svg>
+                        </div>
                         {service.name}
                         {#if Array.isArray(service.id)}
                             <span class="service-count">({service.id.length})</span>
@@ -234,6 +260,13 @@
     
     .dropdown-item:hover {
         background: #f3f4f6;
+    }
+    
+    .checkbox {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
     }
     
     .service-count {
