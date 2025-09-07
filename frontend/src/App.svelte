@@ -111,6 +111,8 @@
       background: white;
       border-bottom: 1px solid #e5e7eb;
       padding: 16px 24px;
+      -webkit-app-region: drag;      /* macOS dragging */
+      --wails-draggable: drag; 
   }
   
   .header-content {
