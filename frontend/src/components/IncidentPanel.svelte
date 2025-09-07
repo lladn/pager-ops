@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { openIncidents, resolvedIncidents, activeTab, loading, servicesConfig } from '../stores/incidents';
+    import { openIncidents, resolvedIncidents, activeTab, loading } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
     
     export let type: 'open' | 'resolved';
@@ -26,9 +26,9 @@
                 <h3>No {type} incidents</h3>
                 <p>
                     {#if type === 'open'}
-                    No Active Incidents, No News is a Good News 
+                        All systems operational. Great job!
                     {:else}
-                        No Resolved openIncidents, Please select a services.
+                        No resolved incidents in the past week.
                     {/if}
                 </p>
             </div>
@@ -41,6 +41,7 @@
         {/if}
     </div>
 {/if}
+
 
 <style>
     .incident-panel {
