@@ -7,6 +7,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 )
 
 //go:embed all:frontend/dist
@@ -42,6 +43,19 @@ func main() {
 		CSSDragValue:       "drag",
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.ERROR,
+		Mac: &mac.Options{
+			TitleBar: &mac.TitleBar{
+				TitlebarAppearsTransparent: true,
+				HideTitle:                  true, 
+				FullSizeContent:            true,
+				HideToolbarSeparator:       true, 
+			},
+			About: &mac.AboutInfo{
+				Title:   "PagerOps",
+				Message: "Copyright © 2025.9.4 Louie Ladiona \n Version: 1.0.0-beta.4",
+			},
+		},
+		
 	})
 
 	if err != nil {
