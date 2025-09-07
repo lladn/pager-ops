@@ -1,4 +1,3 @@
-<!-- frontend/src/components/Settings.svelte -->
 <script lang="ts">
     import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig } from '../stores/incidents';
     import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig } from '../../wailsjs/go/main/App';
@@ -75,13 +74,16 @@
             }
             
             // Create a single service entry with multiple IDs if needed
-            const newService = {
+            const newService: store.ServiceConfig = new store.ServiceConfig({
                 id: serviceIds.length === 1 ? serviceIds[0] : serviceIds,
                 name: newServiceName
-            };
+            });
             
-            config.services.push(newService);
-            await UploadServicesConfig(JSON.stringify(config));
+            // Properly type the services array
+            const updatedServices = [...config.services, newService];
+            const updatedConfig = { services: updatedServices };
+            
+            await UploadServicesConfig(JSON.stringify(updatedConfig));
             await loadServicesConfig();
             
             newServiceId = '';
@@ -173,9 +175,6 @@
                     class:active={$settingsTab === 'api'}
                     on:click={() => settingsTab.set('api')}
                 >
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
-                    </svg>
                     API Key
                 </button>
                 <button 
@@ -183,10 +182,6 @@
                     class:active={$settingsTab === 'services'}
                     on:click={() => settingsTab.set('services')}
                 >
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000 2H6a2 2 0 00-2 2v6a2 2 0 002 2h2a1 1 0 100 2H6a4 4 0 01-4-4V5a4 4 0 014-4 1 1 0 100 2z" clip-rule="evenodd" />
-                    </svg>
                     Services
                     <span class="preview-badge">PREVIEW</span>
                 </button>
@@ -280,8 +275,6 @@
         </div>
     </div>
 {/if}
-
-<!-- Keep all existing styles -->
 
 <style>
     .modal-overlay {
@@ -384,28 +377,9 @@
         color: white;
         padding: 2px 6px;
         border-radius: 4px;
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 600;
         text-transform: uppercase;
-    }
-    
-    .alert {
-        padding: 12px;
-        border-radius: 8px;
-        margin-bottom: 16px;
-        font-size: 14px;
-    }
-    
-    .alert-error {
-        background: #fee;
-        color: #dc2626;
-        border: 1px solid #fecaca;
-    }
-    
-    .alert-success {
-        background: #f0fdf4;
-        color: #16a34a;
-        border: 1px solid #bbf7d0;
     }
     
     .form-group {
@@ -414,35 +388,26 @@
         gap: 12px;
     }
     
-    label {
-        font-size: 14px;
+    .form-group label {
         font-weight: 500;
         color: #374151;
     }
     
-    input[type="text"],
-    input[type="password"] {
-        padding: 8px 12px;
+    .form-group input {
+        padding: 10px 12px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
         font-size: 14px;
     }
     
-    input[type="text"]:focus,
-    input[type="password"]:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
     .btn {
-        padding: 8px 16px;
+        padding: 10px 20px;
         border: none;
         border-radius: 6px;
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: all 0.2s ease;
     }
     
     .btn-primary {
@@ -455,26 +420,45 @@
     }
     
     .btn-add {
-        background: #6b7280;
+        background: #10b981;
         color: white;
-        display: flex;
-        align-items: center;
-        gap: 4px;
     }
     
     .btn-add:hover {
-        background: #4b5563;
+        background: #059669;
     }
     
-    .services-section h3 {
-        font-size: 16px;
+    .alert {
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-top: 16px;
+        font-size: 14px;
+    }
+    
+    .alert-error {
+        background: #fee2e2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+    }
+    
+    .alert-success {
+        background: #d1fae5;
+        color: #059669;
+        border: 1px solid #a7f3d0;
+    }
+    
+    .services-tab h3 {
+        font-size: 18px;
         font-weight: 600;
         color: #111827;
-        margin: 24px 0 12px 0;
+        margin-bottom: 12px;
+        margin-top: 0;
     }
     
-    .services-section h3:first-child {
-        margin-top: 0;
+    .info-text {
+        color: #6b7280;
+        font-size: 14px;
+        margin-bottom: 12px;
     }
     
     .service-form {
