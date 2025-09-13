@@ -84,111 +84,89 @@
     
     async function toggleServiceGroup(service: store.ServiceConfig) {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
-                          Array.isArray(service.id) ? service.id : [String(service.id)];
+                          Array.isArray(service.id) ? service.id : [];
         
-        const isCurrentlySelected = isServiceGroupSelected(service, localSelectedServices);
+        const allSelected = serviceIds.every(id => localSelectedServices.includes(id));
         
-        // Update local state immediately for UI responsiveness
-        if (isCurrentlySelected) {
-            // Remove all IDs of this service group
-            localSelectedServices = localSelectedServices.filter(id => !serviceIds.includes(id));
+        let newSelection: string[];
+        if (allSelected) {
+            // Remove all IDs from this service group
+            newSelection = localSelectedServices.filter(id => !serviceIds.includes(id));
         } else {
-            // Add all IDs of this service group
-            localSelectedServices = [...new Set([...localSelectedServices, ...serviceIds])];
+            // Add all IDs from this service group
+            const toAdd = serviceIds.filter(id => !localSelectedServices.includes(id));
+            newSelection = [...localSelectedServices, ...toAdd];
         }
         
-        // Update store and backend
-        selectedServices.set(localSelectedServices);
-        await SetSelectedServices(localSelectedServices);
+        // Update local state immediately
+        localSelectedServices = newSelection;
         
+        // Update store and backend
+        selectedServices.set(newSelection);
+        await SetSelectedServices(newSelection);
         await loadOpenIncidents();
         await loadResolvedIncidents();
     }
     
-    function isServiceGroupSelected(service: store.ServiceConfig, selected?: string[]): boolean {
-        const checkSelected = selected || localSelectedServices;
+    function isServiceGroupSelected(service: store.ServiceConfig, selected: string[]): boolean {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
-                          Array.isArray(service.id) ? service.id : [String(service.id)];
-        
-        // Check if all IDs in this service group are selected
-        return serviceIds.every(id => checkSelected.includes(id));
+                          Array.isArray(service.id) ? service.id : [];
+        return serviceIds.every(id => selected.includes(id));
     }
     
-    function isServiceGroupPartiallySelected(service: store.ServiceConfig, selected?: string[]): boolean {
-        const checkSelected = selected || localSelectedServices;
+    function isServiceGroupPartiallySelected(service: store.ServiceConfig, selected: string[]): boolean {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
-                          Array.isArray(service.id) ? service.id : [String(service.id)];
-        
-        // Check if some (but not all) IDs in this service group are selected
-        const selectedCount = serviceIds.filter(id => checkSelected.includes(id)).length;
+                          Array.isArray(service.id) ? service.id : [];
+        const selectedCount = serviceIds.filter(id => selected.includes(id)).length;
         return selectedCount > 0 && selectedCount < serviceIds.length;
     }
-    
-    // Close dropdown when clicking outside
-    function handleClickOutside(event: MouseEvent) {
-        const target = event.target as HTMLElement;
-        if (!target.closest('.service-filter')) {
-            closeDropdown();
-        }
-    }
 </script>
-
-<svelte:window on:click={handleClickOutside} />
 
 <div class="service-filter">
     <button class="filter-button" on:click={toggleDropdown}>
         <span class="filter-text">{filterText}</span>
-        <svg class="filter-arrow" class:rotate={isOpen} width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+        <svg class="chevron" class:rotated={isOpen} width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
         </svg>
     </button>
     
     {#if isOpen}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="dropdown-backdrop" on:click={closeDropdown}></div>
         <div class="dropdown-menu">
-            <button class="dropdown-item" on:click={selectAllServices}>
-                <div class="checkbox">
-                    {#if localSelectedServices.length === 0 || localSelectedServices.length === getAllServiceIds().length}
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
-                            <path d="M4 8L6.5 10.5L12 5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    {:else}
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                            <rect x="0.5" y="0.5" width="15" height="15" rx="2" stroke="#D1D5DB"/>
-                        </svg>
-                    {/if}
-                </div>
-                All Services
-            </button>
-            
-            {#if $servicesConfig}
+            {#if $servicesConfig && $servicesConfig.services.length > 0}
+                <button class="dropdown-item" on:click={selectAllServices}>
+                    <span class="checkbox">
+                        {#if localSelectedServices.length === getAllServiceIds().length}
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        {/if}
+                    </span>
+                    <span>All Services</span>
+                </button>
+                
+                <div class="dropdown-divider"></div>
+                
                 {#each $servicesConfig.services as service}
                     <button class="dropdown-item" on:click={() => toggleServiceGroup(service)}>
-                        <div class="checkbox">
+                        <span class="checkbox">
                             {#if isServiceGroupSelected(service, localSelectedServices)}
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
-                                    <path d="M4 8L6.5 10.5L12 5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                                 </svg>
                             {:else if isServiceGroupPartiallySelected(service, localSelectedServices)}
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" fill="#4F46E5" stroke="#4F46E5"/>
-                                    <rect x="4" y="7" width="8" height="2" fill="white"/>
-                                </svg>
-                            {:else}
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <rect x="0.5" y="0.5" width="15" height="15" rx="2" stroke="#D1D5DB"/>
-                                </svg>
+                                <span class="partial-check">−</span>
                             {/if}
-                        </div>
-                        {service.name}
-                        {#if Array.isArray(service.id)}
-                            <span class="service-count">({service.id.length})</span>
-                        {/if}
+                        </span>
+                        <span>{service.name}</span>
                     </button>
                 {/each}
             {:else}
-                <div class="dropdown-empty">No services configured</div>
+                <div class="no-services">
+                    No services configured
+                </div>
             {/if}
         </div>
     {/if}
@@ -203,43 +181,58 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 8px 16px;
-        background: #f3f4f6;
+        padding: 8px 12px;
+        background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         cursor: pointer;
         font-size: 14px;
         color: #374151;
-        transition: all 0.2s ease;
+        transition: all 0.2s;
+        min-width: 160px;
     }
     
     .filter-button:hover {
-        background: #e5e7eb;
+        background: #f9fafb;
+        border-color: #d1d5db;
     }
     
     .filter-text {
+        flex: 1;
+        text-align: left;
         font-weight: 500;
     }
     
-    .filter-arrow {
-        transition: transform 0.2s ease;
+    .chevron {
+        transition: transform 0.2s;
+        color: #6b7280;
     }
     
-    .filter-arrow.rotate {
+    .chevron.rotated {
         transform: rotate(180deg);
+    }
+    
+    .dropdown-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 10;
     }
     
     .dropdown-menu {
         position: absolute;
         top: calc(100% + 4px);
         right: 0;
-        min-width: 200px;
         background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-        z-index: 50;
-        padding: 4px;
+        z-index: 20;
+        min-width: 200px;
+        max-height: 300px;
+        overflow-y: auto;
     }
     
     .dropdown-item {
@@ -250,12 +243,11 @@
         padding: 8px 12px;
         background: transparent;
         border: none;
-        border-radius: 4px;
         cursor: pointer;
         font-size: 14px;
         color: #374151;
         text-align: left;
-        transition: background 0.2s ease;
+        transition: background 0.2s;
     }
     
     .dropdown-item:hover {
@@ -263,20 +255,31 @@
     }
     
     .checkbox {
+        width: 16px;
+        height: 16px;
+        border: 1px solid #d1d5db;
+        border-radius: 3px;
         display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
+        background: white;
+        color: #3b82f6;
     }
     
-    .service-count {
-        margin-left: auto;
-        font-size: 12px;
-        color: #6b7280;
+    .partial-check {
+        font-size: 16px;
+        line-height: 1;
+        color: #3b82f6;
     }
     
-    .dropdown-empty {
-        padding: 12px;
+    .dropdown-divider {
+        height: 1px;
+        background: #e5e7eb;
+        margin: 4px 0;
+    }
+    
+    .no-services {
+        padding: 16px;
         text-align: center;
         color: #6b7280;
         font-size: 14px;
