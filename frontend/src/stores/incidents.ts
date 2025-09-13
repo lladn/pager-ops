@@ -1,5 +1,5 @@
 // frontend/src/stores/incidents.ts
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { database, store } from '../../wailsjs/go/models';
 import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, GetSelectedServices } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
@@ -26,6 +26,8 @@ export const error = writable<string | null>(null);
 
 // Store for polling state to prevent loading flicker
 let isPolling = false;
+let lastOpenIncidentIds = new Set<string>();
+let lastResolvedIncidentIds = new Set<string>();
 
 // Derived store for incident counts
 export const openCount = derived(openIncidents, $incidents => $incidents.length);
@@ -41,6 +43,19 @@ export async function loadOpenIncidents() {
     try {
         const services = await GetSelectedServices();
         const incidents = await GetOpenIncidents(services);
+        
+        // Track status changes
+        const currentOpenIds = new Set(incidents.map((i: IncidentData) => i.incident_id));
+        
+        // Check if any incidents moved from open to resolved
+        const movedToResolved = Array.from(lastOpenIncidentIds).filter(id => !currentOpenIds.has(id));
+        
+        if (movedToResolved.length > 0 && isPolling) {
+            // Force reload resolved incidents to show newly resolved ones
+            await loadResolvedIncidents();
+        }
+        
+        lastOpenIncidentIds = currentOpenIds;
         openIncidents.set(incidents || []);
     } catch (err) {
         error.set(err?.toString() || 'Failed to load open incidents');
@@ -61,6 +76,11 @@ export async function loadResolvedIncidents() {
     try {
         const services = await GetSelectedServices();
         const incidents = await GetResolvedIncidents(services);
+        
+        // Track resolved incidents
+        const currentResolvedIds = new Set(incidents.map((i: IncidentData) => i.incident_id));
+        lastResolvedIncidentIds = currentResolvedIds;
+        
         resolvedIncidents.set(incidents || []);
     } catch (err) {
         error.set(err?.toString() || 'Failed to load resolved incidents');
@@ -76,70 +96,91 @@ export async function loadServicesConfig() {
     try {
         const config = await GetServicesConfig();
         servicesConfig.set(config);
+        
+        // Load selected services
         const selected = await GetSelectedServices();
-        selectedServices.set(selected || []);
+        selectedServices.set(selected);
     } catch (err) {
+        // No services configured yet
         servicesConfig.set(null);
         selectedServices.set([]);
     }
 }
 
-// Initialize event listeners
+// Initialize event listeners for backend updates
 export function initializeEventListeners() {
     // Listen for incident updates from backend polling
-    EventsOn('incidents-updated', (type: string) => {
+    EventsOn('incidents-updated', async (type: string) => {
         isPolling = true;
-        if (type === 'open') {
-            loadOpenIncidents();
-        } else if (type === 'resolved') {
-            loadResolvedIncidents();
+        
+        if (type === 'both' || type === 'open') {
+            // Store current state before updating
+            const currentOpen = get(openIncidents);
+            const currentOpenMap = new Map(currentOpen.map(i => [i.incident_id, i]));
+            
+            // Load new data
+            await loadOpenIncidents();
+            const newOpen = get(openIncidents);
+            
+            // Check for status changes
+            for (const oldIncident of currentOpen) {
+                const newIncident = newOpen.find(i => i.incident_id === oldIncident.incident_id);
+                
+                // If incident is no longer in open list or changed to resolved status
+                if (!newIncident || newIncident.status === 'resolved') {
+                    // Force reload resolved to show it there immediately
+                    await loadResolvedIncidents();
+                    break;
+                }
+                
+                // Check for status changes within open (triggered -> acknowledged)
+                if (newIncident && oldIncident.status !== newIncident.status) {
+                    console.log(`Incident ${newIncident.incident_id} changed from ${oldIncident.status} to ${newIncident.status}`);
+                }
+            }
         }
-        // Reset polling flag after a short delay
-        setTimeout(() => {
-            isPolling = false;
-        }, 100);
+        
+        if (type === 'both' || type === 'resolved') {
+            await loadResolvedIncidents();
+        }
+        
+        isPolling = false;
     });
-
-    // Listen for services config updates
-    EventsOn('services-config-updated', () => {
-        loadServicesConfig();
+    
+    // Listen for API key configuration
+    EventsOn('api-key-configured', async () => {
+        await loadOpenIncidents();
+        await loadResolvedIncidents();
+    });
+    
+    // Listen for services configuration updates
+    EventsOn('services-config-updated', async () => {
+        await loadServicesConfig();
+        await loadOpenIncidents();
+        await loadResolvedIncidents();
     });
 }
 
-// Format time helper
-export function formatTime(date: string | Date): string {
+// Helper function to format time
+export function formatTime(date: Date | string): string {
     const d = typeof date === 'string' ? new Date(date) : date;
     const now = new Date();
-    const diff = Math.floor((now.getTime() - d.getTime()) / 1000);
+    const diff = now.getTime() - d.getTime();
     
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
     
-    return d.toLocaleDateString('en-US', { 
-        month: 'numeric', 
-        day: 'numeric', 
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-    });
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    
+    return d.toLocaleDateString();
 }
 
-// Get urgency level from incident
-export function getUrgency(incident: IncidentData): 'high' | 'low' | 'medium' {
-    // Check urgency field if available from backend
-    if (incident.urgency) {
-        return incident.urgency as 'high' | 'low' | 'medium';
-    }
-    
-    // Fallback to title-based determination
-    const title = incident.title.toLowerCase();
-    if (title.includes('critical') || title.includes('down') || title.includes('failure')) {
-        return 'high';
-    }
-    if (title.includes('warning') || title.includes('degradation')) {
-        return 'medium';
-    }
-    return 'low';
+// Helper function to get urgency level
+export function getUrgency(incident: IncidentData): string {
+    if (!incident.urgency) return 'low';
+    return incident.urgency.toLowerCase();
 }

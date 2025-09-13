@@ -7,6 +7,8 @@ export function ConfigureAPIKey(arg1:string):Promise<void>;
 
 export function GetAPIKey():Promise<string>;
 
+export function GetFilterByUser():Promise<boolean>;
+
 export function GetOpenIncidents(arg1:Array<string>):Promise<Array<database.IncidentData>>;
 
 export function GetResolvedIncidents(arg1:Array<string>):Promise<Array<database.IncidentData>>;
@@ -18,6 +20,8 @@ export function GetServicesConfig():Promise<store.ServicesConfig>;
 export function ReadFile(arg1:string):Promise<string>;
 
 export function RemoveServicesConfig():Promise<void>;
+
+export function SetFilterByUser(arg1:boolean):Promise<void>;
 
 export function SetSelectedServices(arg1:Array<string>):Promise<void>;
 
