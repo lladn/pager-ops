@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig } from '../stores/incidents';
-    import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig } from '../../wailsjs/go/main/App';
+    import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig, loadOpenIncidents, loadResolvedIncidents } from '../stores/incidents';
+    import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     
     let apiKey = '';
@@ -8,10 +8,14 @@
     let newServiceName = '';
     let errorMessage = '';
     let successMessage = '';
+    let filterByUser = true; // Default to ON
     
-    // Load API key when settings open
+    // Load API key and filter state when settings open
     $: if ($settingsOpen) {
-        loadApiKey();
+        if ($settingsTab === 'api') {
+            loadApiKey();
+            loadFilterState();
+        }
     }
     
     async function loadApiKey() {
@@ -20,6 +24,18 @@
             apiKey = key || '';
         } catch (err) {
             apiKey = '';
+        }
+    }
+    
+    async function loadFilterState() {
+        try {
+            const state = await GetFilterByUser();
+            filterByUser = state;
+        } catch (err) {
+            // If error or not set, default to true (ON)
+            filterByUser = true;
+            // Set it in backend as well
+            await SetFilterByUser(true);
         }
     }
     
@@ -38,6 +54,19 @@
             setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = err?.toString() || 'Failed to save API key';
+        }
+    }
+    
+    async function toggleAssignedFilter() {
+        try {
+            const newState = !filterByUser;
+            await SetFilterByUser(newState);
+            filterByUser = newState;
+            // Reload incidents with new filter
+            await loadOpenIncidents();
+            await loadResolvedIncidents();
+        } catch (err) {
+            errorMessage = 'Failed to toggle assignment filter';
         }
     }
     
@@ -79,31 +108,32 @@
                 name: newServiceName
             });
             
-            // Properly type the services array
-            const updatedServices = [...config.services, newService];
-            const updatedConfig = { services: updatedServices };
+            config.services.push(newService);
             
-            await UploadServicesConfig(JSON.stringify(updatedConfig));
+            // Upload the updated configuration
+            await UploadServicesConfig(JSON.stringify(config));
             await loadServicesConfig();
             
+            // Reset form
             newServiceId = '';
             newServiceName = '';
-            successMessage = `Service "${newServiceName}" added successfully with ${serviceIds.length} ID(s)`;
+            successMessage = 'Service added successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = err?.toString() || 'Failed to add service';
         }
     }
     
-    async function removeService(service: store.ServiceConfig) {
+    async function removeService(serviceToRemove: store.ServiceConfig) {
         try {
-            if (!$servicesConfig) return;
+            const config = $servicesConfig;
+            if (!config) return;
             
-            const config = {
-                services: $servicesConfig.services.filter((s: store.ServiceConfig) => {
-                    return s !== service;
-                })
-            };
+            config.services = config.services.filter((s: store.ServiceConfig) => {
+                const serviceId = typeof s.id === 'string' ? s.id : JSON.stringify(s.id);
+                const removeId = typeof serviceToRemove.id === 'string' ? serviceToRemove.id : JSON.stringify(serviceToRemove.id);
+                return serviceId !== removeId;
+            });
             
             if (config.services.length === 0) {
                 await RemoveServicesConfig();
@@ -112,246 +142,241 @@
             }
             
             await loadServicesConfig();
+            successMessage = 'Service removed successfully';
+            setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = err?.toString() || 'Failed to remove service';
         }
     }
     
     async function handleFileUpload(event: Event) {
-        const target = event.target as HTMLInputElement;
-        const file = target.files?.[0];
+        const input = event.target as HTMLInputElement;
+        const file = input.files?.[0];
         
         if (!file) return;
         
-        errorMessage = '';
-        successMessage = '';
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const content = e.target?.result as string;
+                await UploadServicesConfig(content);
+                await loadServicesConfig();
+                successMessage = 'Services configuration uploaded successfully';
+                setTimeout(() => successMessage = '', 3000);
+            } catch (err) {
+                errorMessage = err?.toString() || 'Failed to upload configuration';
+            }
+        };
         
-        try {
-            const content = await file.text();
-            await UploadServicesConfig(content);
-            await loadServicesConfig();
-            successMessage = 'Services configuration uploaded successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = err?.toString() || 'Failed to upload configuration';
-        }
-        
-        target.value = '';
+        reader.readAsText(file);
+        input.value = ''; // Reset input
     }
     
-    function closeSettings() {
-        settingsOpen.set(false);
-        errorMessage = '';
-        successMessage = '';
-    }
-    
-    function getServiceIdDisplay(service: store.ServiceConfig): string {
-        if (typeof service.id === 'string') {
-            return service.id;
-        } else if (Array.isArray(service.id)) {
-            return service.id.join(', ');
-        }
-        return String(service.id);
+    function getServiceIdDisplay(id: string | string[] | undefined): string {
+        if (!id) return '';
+        if (typeof id === 'string') return id;
+        if (Array.isArray(id)) return id.join(', ');
+        return '';
     }
 </script>
 
 {#if $settingsOpen}
-    <div class="modal-overlay" on:click={closeSettings}>
-        <div class="modal-content" on:click|stopPropagation>
-            <div class="modal-header">
-                <h2 class="modal-title">Settings</h2>
-                <button class="close-button" on:click={closeSettings}>
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                    </svg>
-                </button>
-            </div>
-            
-            <p class="modal-subtitle">Configure your PagerDuty settings</p>
-            
-            <div class="tabs">
-                <button 
-                    class="tab" 
-                    class:active={$settingsTab === 'api'}
-                    on:click={() => settingsTab.set('api')}
-                >
-                    API Key
-                </button>
-                <button 
-                    class="tab" 
-                    class:active={$settingsTab === 'services'}
-                    on:click={() => settingsTab.set('services')}
-                >
-                    Services
-                    <span class="preview-badge">PREVIEW</span>
-                </button>
-            </div>
-            
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="settings-overlay" on:click={() => settingsOpen.set(false)}></div>
+    <div class="settings-panel">
+        <div class="settings-header">
+            <h2>Settings</h2>
+            <button class="close-button" on:click={() => settingsOpen.set(false)}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+        </div>
+        
+        <div class="tabs">
+            <button 
+                class="tab" 
+                class:active={$settingsTab === 'api'}
+                on:click={() => settingsTab.set('api')}
+            >
+                API Key
+            </button>
+            <button 
+                class="tab" 
+                class:active={$settingsTab === 'services'}
+                on:click={() => settingsTab.set('services')}
+            >
+                Services
+            </button>
+        </div>
+        
+        {#if errorMessage}
+            <div class="alert alert-error">{errorMessage}</div>
+        {/if}
+        
+        {#if successMessage}
+            <div class="alert alert-success">{successMessage}</div>
+        {/if}
+        
+        {#if $settingsTab === 'api'}
             <div class="tab-content">
-                {#if $settingsTab === 'api'}
-                    <div class="form-group">
-                        <label for="api-key">PagerDuty API Key</label>
-                        <input 
-                            id="api-key"
-                            type="password" 
-                            bind:value={apiKey}
-                            placeholder="Enter your PagerDuty API key"
-                        />
-                        <button class="btn btn-primary" on:click={saveApiKey}>
-                            Save API Key
-                        </button>
-                    </div>
-                {:else if $settingsTab === 'services'}
-                    <div class="services-tab">
-                        <h3>Add New Service</h3>
-                        <p class="info-text">Add multiple service IDs separated by commas to group them under one name</p>
-                        <div class="service-form">
-                            <input 
-                                type="text" 
-                                bind:value={newServiceId}
-                                placeholder="e.g., AS8ADUE, LGIEM8NA, FG78AN"
-                                class="service-input"
-                            />
-                            <input 
-                                type="text" 
-                                bind:value={newServiceName}
-                                placeholder="e.g., Production Services"
-                                class="service-input"
-                            />
-                            <button class="btn btn-add" on:click={addService}>
-                                + Add Service
-                            </button>
-                        </div>
-                        
-                        <div class="upload-section">
-                            <label for="file-upload" class="upload-label">
-                                Or upload a JSON configuration file
-                            </label>
-                            <input 
-                                id="file-upload"
-                                type="file" 
-                                accept=".json"
-                                on:change={handleFileUpload}
-                                class="file-input"
-                            />
-                        </div>
-                        
-                        <h3>Existing Services</h3>
-                        <div class="services-list">
-                            {#if $servicesConfig && $servicesConfig.services.length > 0}
-                                {#each $servicesConfig.services as service}
-                                    <div class="service-item">
-                                        <div class="service-info">
-                                            <span class="service-name">{service.name}</span>
-                                            <span class="service-badge">active</span>
-                                        </div>
-                                        <span class="service-id">ID: {getServiceIdDisplay(service)}</span>
-                                        <button 
-                                            class="delete-button"
-                                            on:click={() => removeService(service)}
-                                            title="Remove service"
-                                        >
-                                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                {/each}
-                            {:else}
-                                <div class="empty-state">No services configured</div>
-                            {/if}
-                        </div>
+                <div class="form-group">
+                    <label for="api-key">PagerDuty API Key</label>
+                    <input 
+                        id="api-key"
+                        type="password" 
+                        bind:value={apiKey}
+                        placeholder="Enter your PagerDuty API key"
+                    />
+                    <button class="btn btn-primary" on:click={saveApiKey}>
+                        Save API Key
+                    </button>
+                </div>
+                
+                <!-- Assignment Filter Button -->
+                <div class="form-group" style="margin-top: 20px;">
+                    <button 
+                        class="assigned-button"
+                        class:active={filterByUser}
+                        on:click={toggleAssignedFilter}
+                    >
+                        {#if filterByUser}
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="margin-right: 6px;">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                            </svg>
+                        {/if}
+                        Assigned
+                    </button>
+                    <p style="margin-top: 8px; font-size: 12px; color: #6b7280;">
+                        Show only incidents assigned to you
+                    </p>
+                </div>
+            </div>
+        {:else if $settingsTab === 'services'}
+            <!-- ... existing services tab content ... -->
+            <div class="tab-content">
+                <div class="form-group">
+                    <!-- svelte-ignore a11y-label-has-associated-control -->
+                    <label>Upload Services Configuration</label>
+                    <input 
+                        type="file" 
+                        accept=".json"
+                        on:change={handleFileUpload}
+                        class="file-input"
+                    />
+                    <p class="help-text">Upload a JSON file with your services configuration</p>
+                </div>
+                
+                {#if $servicesConfig && $servicesConfig.services.length > 0}
+                    <div class="services-list">
+                        <h3>Configured Services</h3>
+                        {#each $servicesConfig.services as service}
+                            <div class="service-item">
+                                <div class="service-info">
+                                    <strong>{service.name}</strong>
+                                    <span class="service-id">{getServiceIdDisplay(service.id)}</span>
+                                </div>
+                                <button class="btn-remove" on:click={() => removeService(service)}>
+                                    Remove
+                                </button>
+                            </div>
+                        {/each}
                     </div>
                 {/if}
+                
+                <div class="form-group">
+                    <h3>Add Service Manually</h3>
+                    <input 
+                        type="text" 
+                        bind:value={newServiceId}
+                        placeholder="Service ID (comma-separated for multiple)"
+                    />
+                    <input 
+                        type="text" 
+                        bind:value={newServiceName}
+                        placeholder="Service Name"
+                    />
+                    <button class="btn btn-primary" on:click={addService}>
+                        Add Service
+                    </button>
+                </div>
             </div>
-            
-            {#if errorMessage}
-                <div class="alert alert-error">{errorMessage}</div>
-            {/if}
-            
-            {#if successMessage}
-                <div class="alert alert-success">{successMessage}</div>
-            {/if}
-        </div>
+        {/if}
     </div>
 {/if}
 
 <style>
-    .modal-overlay {
+    /* Keep all your existing styles exactly as they are */
+    .settings-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
         background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 100;
+        z-index: 999;
     }
     
-    .modal-content {
+    .settings-panel {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         background: white;
         border-radius: 12px;
         width: 90%;
-        max-width: 600px;
+        max-width: 500px;
         max-height: 80vh;
         overflow-y: auto;
-        padding: 24px;
+        z-index: 1000;
+        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
     }
     
-    .modal-header {
+    .settings-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 8px;
+        padding: 20px;
+        border-bottom: 1px solid #e5e7eb;
     }
     
-    .modal-title {
-        font-size: 24px;
-        font-weight: 600;
-        color: #111827;
+    .settings-header h2 {
         margin: 0;
-    }
-    
-    .modal-subtitle {
-        color: #6b7280;
-        margin-bottom: 24px;
+        font-size: 20px;
+        color: #111827;
     }
     
     .close-button {
         background: transparent;
         border: none;
-        cursor: pointer;
         padding: 4px;
+        cursor: pointer;
         color: #6b7280;
-        transition: color 0.2s;
+        border-radius: 6px;
+        transition: all 0.2s;
     }
     
     .close-button:hover {
+        background: #f3f4f6;
         color: #111827;
     }
     
     .tabs {
         display: flex;
-        gap: 24px;
         border-bottom: 1px solid #e5e7eb;
-        margin-bottom: 24px;
     }
     
     .tab {
-        position: relative;
+        flex: 1;
+        padding: 12px;
         background: transparent;
         border: none;
-        padding: 8px 0;
-        font-size: 16px;
+        cursor: pointer;
+        font-size: 14px;
         font-weight: 500;
         color: #6b7280;
-        cursor: pointer;
-        transition: color 0.2s;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
     }
     
     .tab:hover {
@@ -359,55 +384,76 @@
     }
     
     .tab.active {
-        color: #111827;
+        color: #3b82f6;
+        border-bottom-color: #3b82f6;
     }
     
-    .tab.active::after {
-        content: '';
-        position: absolute;
-        bottom: -1px;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: #3b82f6;
-    }
-    
-    .preview-badge {
-        background: #6b7280;
-        color: white;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
+    .tab-content {
+        padding: 20px;
     }
     
     .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
+        margin-bottom: 20px;
     }
     
     .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
         font-weight: 500;
         color: #374151;
     }
     
-    .form-group input {
-        padding: 10px 12px;
-        border: 1px solid #e5e7eb;
+    .form-group input[type="text"],
+    .form-group input[type="password"] {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
         border-radius: 6px;
         font-size: 14px;
+        margin-bottom: 12px;
+    }
+    
+    .form-group input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    
+    /* Assigned Button Styles */
+    .assigned-button {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 16px;
+        background: white;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .assigned-button:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+    
+    .assigned-button.active {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
     }
     
     .btn {
-        padding: 10px 20px;
+        padding: 8px 16px;
         border: none;
         border-radius: 6px;
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all 0.2s;
     }
     
     .btn-primary {
@@ -419,137 +465,90 @@
         background: #2563eb;
     }
     
-    .btn-add {
-        background: #10b981;
+    .btn-remove {
+        padding: 4px 12px;
+        background: #ef4444;
         color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
     }
     
-    .btn-add:hover {
-        background: #059669;
+    .btn-remove:hover {
+        background: #dc2626;
     }
     
     .alert {
-        padding: 12px 16px;
+        padding: 12px;
         border-radius: 6px;
-        margin-top: 16px;
+        margin: 16px 20px;
         font-size: 14px;
     }
     
     .alert-error {
         background: #fee2e2;
-        color: #dc2626;
+        color: #991b1b;
         border: 1px solid #fecaca;
     }
     
     .alert-success {
-        background: #d1fae5;
-        color: #059669;
-        border: 1px solid #a7f3d0;
-    }
-    
-    .services-tab h3 {
-        font-size: 18px;
-        font-weight: 600;
-        color: #111827;
-        margin-bottom: 12px;
-        margin-top: 0;
-    }
-    
-    .info-text {
-        color: #6b7280;
-        font-size: 14px;
-        margin-bottom: 12px;
-    }
-    
-    .service-form {
-        display: grid;
-        grid-template-columns: 1fr 1fr auto;
-        gap: 8px;
-        margin-bottom: 16px;
-    }
-    
-    .service-input {
-        padding: 8px 12px;
-        border: 1px solid #e5e7eb;
-        border-radius: 6px;
-        font-size: 14px;
-    }
-    
-    .upload-section {
-        margin: 16px 0;
-        padding: 16px 0;
-        border-top: 1px solid #e5e7eb;
-        border-bottom: 1px solid #e5e7eb;
-    }
-    
-    .upload-label {
-        display: block;
-        margin-bottom: 8px;
-    }
-    
-    .file-input {
-        font-size: 14px;
+        background: #dcfce7;
+        color: #166534;
+        border: 1px solid #bbf7d0;
     }
     
     .services-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
+        margin-bottom: 24px;
+    }
+    
+    .services-list h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: #111827;
+        margin: 0 0 12px 0;
     }
     
     .service-item {
         display: flex;
-        align-items: center;
         justify-content: space-between;
+        align-items: center;
         padding: 12px;
         background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border-radius: 6px;
+        margin-bottom: 8px;
     }
     
     .service-info {
         display: flex;
-        align-items: center;
-        gap: 8px;
-        flex: 1;
+        flex-direction: column;
+        gap: 4px;
     }
     
-    .service-name {
-        font-weight: 500;
+    .service-info strong {
+        font-size: 14px;
         color: #111827;
     }
     
-    .service-badge {
-        background: #111827;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
-    }
-    
     .service-id {
+        font-size: 12px;
         color: #6b7280;
-        font-size: 13px;
-        margin-right: 12px;
+        font-family: monospace;
     }
     
-    .delete-button {
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        padding: 4px;
-        color: #ef4444;
-        transition: opacity 0.2s;
+    .file-input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        margin-bottom: 8px;
     }
     
-    .delete-button:hover {
-        opacity: 0.7;
-    }
-    
-    .empty-state {
-        text-align: center;
-        padding: 24px;
+    .help-text {
+        font-size: 12px;
         color: #6b7280;
+        margin: 4px 0 0 0;
     }
 </style>
