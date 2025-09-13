@@ -10,6 +10,10 @@ export function GetAPIKey() {
   return window['go']['main']['App']['GetAPIKey']();
 }
 
+export function GetFilterByUser() {
+  return window['go']['main']['App']['GetFilterByUser']();
+}
+
 export function GetOpenIncidents(arg1) {
   return window['go']['main']['App']['GetOpenIncidents'](arg1);
 }
@@ -32,6 +36,10 @@ export function ReadFile(arg1) {
 
 export function RemoveServicesConfig() {
   return window['go']['main']['App']['RemoveServicesConfig']();
+}
+
+export function SetFilterByUser(arg1) {
+  return window['go']['main']['App']['SetFilterByUser'](arg1);
 }
 
 export function SetSelectedServices(arg1) {

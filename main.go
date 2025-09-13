@@ -44,18 +44,12 @@ func main() {
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.ERROR,
 		Mac: &mac.Options{
-			TitleBar: &mac.TitleBar{
-				TitlebarAppearsTransparent: true,
-				HideTitle:                  true, 
-				FullSizeContent:            true,
-				HideToolbarSeparator:       true, 
-			},
+			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
 				Title:   "PagerOps",
-				Message: "Copyright © 2025.9.4 Louie Ladiona \n Version: 1.0.0-beta.4",
+				Message: "Monitor and manage your Incidents\n \n Copyright © 2025.9.4 Louie Ladiona \n Version: 1.0.0-beta.4",
 			},
 		},
-		
 	})
 
 	if err != nil {
