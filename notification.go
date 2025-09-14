@@ -1,4 +1,3 @@
-// notification.go - CORRECTED VERSION
 package main
 
 import (
@@ -33,11 +32,10 @@ type NotificationManager struct {
 
 type SoundPlayer struct {
 	initialized bool
-	initOnce    sync.Once 
-	initErr     error    
+	initMu      sync.Mutex // Protect the initialization state
+	initOnce    sync.Once
+	initErr     error
 }
-
-var speakerInitMutex sync.Mutex
 
 func NewNotificationManager(logger *Logger) *NotificationManager {
 	return &NotificationManager{
@@ -66,7 +64,6 @@ func (nm *NotificationManager) SetEnabled(enabled bool) {
 	}
 }
 
-// Update SetSound to handle names without extensions
 func (nm *NotificationManager) SetSound(sound string) {
 	nm.mu.Lock()
 	defer nm.mu.Unlock()
@@ -200,8 +197,8 @@ func (nm *NotificationManager) playCustomSound(soundFile string) {
 	}
 	defer stream.Close()
 
-	// Use global mutex for speaker initialization to prevent race
-	speakerInitMutex.Lock()
+	// Proper synchronization for speaker initialization
+	nm.soundPlayer.initMu.Lock()
 	if !nm.soundPlayer.initialized {
 		nm.soundPlayer.initOnce.Do(func() {
 			nm.soundPlayer.initErr = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
@@ -212,12 +209,12 @@ func (nm *NotificationManager) playCustomSound(soundFile string) {
 		})
 
 		if nm.soundPlayer.initErr != nil {
-			speakerInitMutex.Unlock()
+			nm.soundPlayer.initMu.Unlock()
 			nm.logger.Error(fmt.Sprintf("Failed to initialize speaker: %v", nm.soundPlayer.initErr))
 			return
 		}
 	}
-	speakerInitMutex.Unlock()
+	nm.soundPlayer.initMu.Unlock()
 
 	// Play the sound
 	done := make(chan bool)
@@ -275,7 +272,7 @@ func (nm *NotificationManager) TestSound() error {
 	nm.mu.RUnlock()
 
 	if sound == "default" {
-		nm.playDefaultSound("Test Notification")
+		nm.playDefaultSound("Hello There")
 	} else {
 		nm.playCustomSound(sound)
 	}
