@@ -52,6 +52,7 @@
     
     .app-title {
         font-size: 14px;
+        font-style: italic;
         font-weight: 500;
         color: #2c2c2c;
         margin: 0;
