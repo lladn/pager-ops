@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,15 +28,19 @@ type App struct {
 	selectedServices []string
 	kr               keyring.Keyring
 	logger           *Logger
-	filterByUser     bool         
-	mu               sync.RWMutex 
-	pollMu           sync.RWMutex 
+	filterByUser     bool
+	mu               sync.RWMutex
+	pollMu           sync.RWMutex
+	notificationMgr  *NotificationManager
+	lastIncidents    map[string]string
+	lastIncidentsMu  sync.RWMutex
 }
 
 // Set default filterByUser to true:
 func NewApp() *App {
 	return &App{
-		filterByUser: true, // Default to showing only assigned incidents
+		filterByUser:  true,
+		lastIncidents: make(map[string]string),
 	}
 }
 
@@ -43,7 +48,7 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	
+
 	// Initialize logger
 	logger, err := NewLogger()
 	if err != nil {
@@ -56,7 +61,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize database
 	dbPath := filepath.Join(".", "incidents.db")
 	a.logger.Info(fmt.Sprintf("Initializing database at: %s", dbPath))
-	
+
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to initialize database: %v", err))
@@ -83,6 +88,9 @@ func (a *App) startup(ctx context.Context) {
 		a.logger.Info("Keyring initialized successfully")
 	}
 
+	a.notificationMgr = NewNotificationManager(a.logger)
+	a.logger.Info("Notification manager initialized")
+
 	// Try to load API key and initialize client
 	apiKey, err := a.GetAPIKey()
 	if err == nil && apiKey != "" {
@@ -90,10 +98,10 @@ func (a *App) startup(ctx context.Context) {
 		if err == nil {
 			a.client = client
 			a.logger.Info("PagerDuty client initialized successfully")
-			
+
 			// Set default filter to true (show only assigned)
 			a.filterByUser = true
-			
+
 			// Start polling immediately with fresh data
 			a.StartPolling()
 		} else {
@@ -108,7 +116,7 @@ func (a *App) SetFilterByUser(enabled bool) {
 	defer a.mu.Unlock()
 	a.filterByUser = enabled
 	a.logger.Info(fmt.Sprintf("Filter by user set to: %v", enabled))
-	
+
 	// Trigger immediate update
 	if a.polling {
 		go a.fetchAndUpdateIncidents()
@@ -160,7 +168,7 @@ func (a *App) fetchAndUpdateIncidents() {
 		Statuses:   []string{"resolved"},
 		Since:      time.Now().Add(-24 * time.Hour), // Last 24 hours for immediate updates
 	}
-	
+
 	resolvedIncidents, err := a.client.FetchIncidentsWithOptions(resolvedOpts)
 	if err != nil {
 		a.logger.Warn(fmt.Sprintf("Failed to fetch recent resolved incidents: %v", err))
@@ -176,7 +184,7 @@ func (a *App) fetchAndUpdateIncidents() {
 			updatedCount++
 		}
 	}
-	
+
 	// Update resolved incidents
 	for _, incident := range resolvedIncidents {
 		if err := a.db.UpsertIncident(incident); err != nil {
@@ -192,13 +200,58 @@ func (a *App) fetchAndUpdateIncidents() {
 
 	// Emit event to update both open and resolved views
 	runtime.EventsEmit(a.ctx, "incidents-updated", "both")
+	// After updating database, check for triggered incidents
+	openIncidents, err := a.db.GetOpenIncidents()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get open incidents for notification check: %v", err))
+		return
+	}
+
+	// Use dedicated mutex for lastIncidents
+	a.lastIncidentsMu.Lock()
+	defer a.lastIncidentsMu.Unlock()
+
+	for _, incident := range openIncidents {
+		lastStatus, exists := a.lastIncidents[incident.IncidentID]
+
+		// Check if this is a new triggered incident or status changed to triggered
+		if incident.Status == "triggered" && (!exists || lastStatus != "triggered") {
+			// Send notification for triggered incident
+			if a.notificationMgr != nil {
+				err := a.notificationMgr.SendNotification(
+					incident.ServiceSummary,
+					incident.Title,
+					incident.ServiceSummary,
+				)
+				if err != nil {
+					a.logger.Error(fmt.Sprintf("Failed to send notification: %v", err))
+				}
+				a.logger.Info(fmt.Sprintf("Notification sent for triggered incident: %s", incident.IncidentID))
+			}
+		}
+
+		// Update last known status
+		a.lastIncidents[incident.IncidentID] = incident.Status
+	}
+
+	// Clean up resolved incidents from tracking
+	incidentMap := make(map[string]bool)
+	for _, incident := range openIncidents {
+		incidentMap[incident.IncidentID] = true
+	}
+
+	for id := range a.lastIncidents {
+		if !incidentMap[id] {
+			delete(a.lastIncidents, id)
+		}
+	}
 }
 
 // StartPolling starts the incident polling
 func (a *App) StartPolling() {
 	a.pollMu.Lock()
 	defer a.pollMu.Unlock()
-	
+
 	if a.polling {
 		return
 	}
@@ -216,7 +269,7 @@ func (a *App) StartPolling() {
 			a.pollMu.RLock()
 			shouldContinue := a.polling
 			a.pollMu.RUnlock()
-			
+
 			if !shouldContinue {
 				break
 			}
@@ -229,7 +282,7 @@ func (a *App) StartPolling() {
 func (a *App) StopPolling() {
 	a.pollMu.Lock()
 	defer a.pollMu.Unlock()
-	
+
 	a.polling = false
 	if a.pollTicker != nil {
 		a.pollTicker.Stop()
@@ -251,7 +304,7 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	a.pollMu.RLock()
 	isPolling := a.polling
 	a.pollMu.RUnlock()
-	
+
 	// Only fetch manually if polling is not active
 	if !isPolling && a.client != nil {
 		a.fetchAndUpdateIncidents()
@@ -316,7 +369,7 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 					a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
 				}
 			}
-			
+
 			// Emit event to update UI
 			runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 		}()
@@ -375,13 +428,13 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 	// Update client
 	a.client = client
 	a.logger.Info("API key configured successfully")
-	
+
 	// Start polling with new client
 	a.StartPolling()
-	
+
 	// Emit event to notify UI
 	runtime.EventsEmit(a.ctx, "api-key-configured")
-	
+
 	return nil
 }
 
@@ -412,7 +465,7 @@ func (a *App) UploadServicesConfig(jsonData string) error {
 
 	a.servicesConfig = &config
 	a.selectedServices = []string{}
-	
+
 	// Auto-select all services
 	for _, service := range config.Services {
 		switch id := service.ID.(type) {
@@ -432,7 +485,7 @@ func (a *App) UploadServicesConfig(jsonData string) error {
 
 	// Emit event to update UI
 	runtime.EventsEmit(a.ctx, "services-config-updated")
-	
+
 	return nil
 }
 
@@ -443,12 +496,12 @@ func (a *App) RemoveServicesConfig() error {
 
 	a.servicesConfig = nil
 	a.selectedServices = []string{}
-	
+
 	a.logger.Info("Services configuration removed")
-	
+
 	// Emit event to update UI
 	runtime.EventsEmit(a.ctx, "services-config-updated")
-	
+
 	return nil
 }
 
@@ -496,13 +549,98 @@ func (a *App) ReadFile(path string) (string, error) {
 func (a *App) shutdown(ctx context.Context) {
 	// Stop polling
 	a.StopPolling()
-	
+
 	// Close database
 	if a.db != nil {
 		if err := a.db.Close(); err != nil {
 			a.logger.Error(fmt.Sprintf("Failed to close database: %v", err))
 		}
 	}
-	
+
 	a.logger.Info("PagerOps shutting down...")
+}
+
+func (a *App) GetNotificationConfig() NotificationConfig {
+	if a.notificationMgr == nil {
+		return NotificationConfig{}
+	}
+	return a.notificationMgr.GetConfig()
+}
+
+func (a *App) SetNotificationEnabled(enabled bool) {
+	if a.notificationMgr != nil {
+		a.notificationMgr.SetEnabled(enabled)
+	}
+}
+
+func (a *App) SetNotificationSound(sound string) {
+	if a.notificationMgr != nil {
+		a.notificationMgr.SetSound(sound)
+	}
+}
+
+func (a *App) SnoozeNotificationSound(minutes int) {
+	if a.notificationMgr != nil {
+		a.notificationMgr.SnoozeSound(minutes)
+		runtime.EventsEmit(a.ctx, "notification-snoozed", minutes)
+	}
+}
+
+func (a *App) UnsnoozeNotificationSound() {
+	if a.notificationMgr != nil {
+		a.notificationMgr.UnsnoozeSound()
+		runtime.EventsEmit(a.ctx, "notification-unsnoozed")
+	}
+}
+
+func (a *App) GetAvailableSounds() ([]string, error) {
+	if a.notificationMgr == nil {
+		return []string{"default"}, nil
+	}
+	return a.notificationMgr.GetAvailableSounds()
+}
+
+func (a *App) TestNotificationSound() error {
+	if a.notificationMgr == nil {
+		return fmt.Errorf("notification manager not initialized")
+	}
+
+	// Get current sound setting and ensure it has proper extension if needed
+	config := a.notificationMgr.GetConfig()
+	if config.Sound != "default" && !strings.Contains(config.Sound, ".") {
+		// Find the actual file with extension
+		soundsDir := filepath.Join(".", "assets", "sounds")
+		entries, err := os.ReadDir(soundsDir)
+		if err == nil {
+			for _, entry := range entries {
+				name := entry.Name()
+				nameWithoutExt := strings.TrimSuffix(name, filepath.Ext(name))
+				if nameWithoutExt == config.Sound {
+					// Temporarily set the full filename for testing
+					a.notificationMgr.mu.Lock()
+					originalSound := a.notificationMgr.config.Sound
+					a.notificationMgr.config.Sound = name
+					a.notificationMgr.mu.Unlock()
+
+					err := a.notificationMgr.TestSound()
+
+					// Restore original setting
+					a.notificationMgr.mu.Lock()
+					a.notificationMgr.config.Sound = originalSound
+					a.notificationMgr.mu.Unlock()
+
+					return err
+				}
+			}
+		}
+	}
+
+	return a.notificationMgr.TestSound()
+}
+
+func (a *App) IsNotificationSnoozed() bool {
+	if a.notificationMgr == nil {
+		return false
+	}
+	return a.notificationMgr.IsSnoozeActive()
 }

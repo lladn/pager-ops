@@ -1,4 +1,3 @@
-// frontend/src/stores/incidents.ts
 import { writable, derived, get } from 'svelte/store';
 import { database, store } from '../../wailsjs/go/models';
 import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, GetSelectedServices } from '../../wailsjs/go/main/App';
@@ -20,7 +19,7 @@ export const selectedServices = writable<string[]>([]);
 // Store for UI state
 export const activeTab = writable<'open' | 'resolved'>('open');
 export const settingsOpen = writable(false);
-export const settingsTab = writable<'api' | 'services'>('api');
+export const settingsTab = writable<'general' | 'services'>('general');
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
