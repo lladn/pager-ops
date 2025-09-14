@@ -1,6 +1,12 @@
 <script lang="ts">
     import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig, loadOpenIncidents, loadResolvedIncidents } from '../stores/incidents';
-    import { ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
+    import { notificationConfig, availableSounds, loadNotificationConfig, loadAvailableSounds } from '../stores/notifications';
+    import { 
+        ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig, 
+        GetFilterByUser, SetFilterByUser, SetNotificationEnabled, SetNotificationSound,
+        TestNotificationSound, SnoozeNotificationSound, UnsnoozeNotificationSound,
+        IsNotificationSnoozed
+    } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     
     let apiKey = '';
@@ -8,13 +14,25 @@
     let newServiceName = '';
     let errorMessage = '';
     let successMessage = '';
-    let filterByUser = true; // Default to ON
+    let filterByUser = true;
+    let notificationSnoozed = false;
     
-    // Load API key and filter state when settings open
+    // Load data when settings open
     $: if ($settingsOpen) {
-        if ($settingsTab === 'api') {
+        if ($settingsTab === 'general') {
             loadApiKey();
             loadFilterState();
+            loadNotificationConfig();
+            loadAvailableSounds();
+            checkSnoozeStatus();
+        }
+    }
+    
+    async function checkSnoozeStatus() {
+        try {
+            notificationSnoozed = await IsNotificationSnoozed();
+        } catch (err) {
+            notificationSnoozed = false;
         }
     }
     
@@ -32,10 +50,12 @@
             const state = await GetFilterByUser();
             filterByUser = state;
         } catch (err) {
-            // If error or not set, default to true (ON)
             filterByUser = true;
-            // Set it in backend as well
-            await SetFilterByUser(true);
+            try {
+                await SetFilterByUser(true);
+            } catch (e) {
+                // Ignore error on setting default
+            }
         }
     }
     
@@ -62,7 +82,6 @@
             const newState = !filterByUser;
             await SetFilterByUser(newState);
             filterByUser = newState;
-            // Reload incidents with new filter
             await loadOpenIncidents();
             await loadResolvedIncidents();
         } catch (err) {
@@ -70,6 +89,58 @@
         }
     }
     
+    async function toggleNotifications() {
+        try {
+            const newState = !$notificationConfig.enabled;
+            await SetNotificationEnabled(newState);
+            await loadNotificationConfig();
+            successMessage = `Notifications ${newState ? 'enabled' : 'disabled'}`;
+            setTimeout(() => successMessage = '', 3000);
+        } catch (err) {
+            errorMessage = 'Failed to toggle notifications';
+        }
+    }
+    
+    async function changeNotificationSound(event: Event) {
+        const select = event.target as HTMLSelectElement;
+        const sound = select.value;
+        
+        try {
+            await SetNotificationSound(sound);
+            await loadNotificationConfig();
+            successMessage = 'Notification sound updated';
+            setTimeout(() => successMessage = '', 3000);
+        } catch (err) {
+            errorMessage = 'Failed to update notification sound';
+        }
+    }
+    
+    async function testSound() {
+        try {
+            await TestNotificationSound();
+        } catch (err) {
+            errorMessage = 'Failed to test sound';
+        }
+    }
+    
+    async function toggleSnooze() {
+        try {
+            if (notificationSnoozed) {
+                await UnsnoozeNotificationSound();
+                notificationSnoozed = false;
+                successMessage = 'Sound notifications resumed';
+            } else {
+                await SnoozeNotificationSound(30);
+                notificationSnoozed = true;
+                successMessage = 'Sound snoozed for 30 minutes';
+            }
+            setTimeout(() => successMessage = '', 3000);
+        } catch (err) {
+            errorMessage = 'Failed to toggle snooze';
+        }
+    }
+    
+    // Services tab functions
     async function addService() {
         errorMessage = '';
         successMessage = '';
@@ -81,11 +152,8 @@
         
         try {
             const config = $servicesConfig || { services: [] };
-            
-            // Parse multiple service IDs separated by commas
             const serviceIds = newServiceId.split(',').map(id => id.trim()).filter(id => id);
             
-            // Check if any of the service IDs already exist
             for (const serviceId of serviceIds) {
                 const exists = config.services.some((s: store.ServiceConfig) => {
                     if (typeof s.id === 'string') {
@@ -102,19 +170,15 @@
                 }
             }
             
-            // Create a single service entry with multiple IDs if needed
             const newService: store.ServiceConfig = new store.ServiceConfig({
                 id: serviceIds.length === 1 ? serviceIds[0] : serviceIds,
                 name: newServiceName
             });
             
             config.services.push(newService);
-            
-            // Upload the updated configuration
             await UploadServicesConfig(JSON.stringify(config));
             await loadServicesConfig();
             
-            // Reset form
             newServiceId = '';
             newServiceName = '';
             successMessage = 'Service added successfully';
@@ -131,21 +195,28 @@
             
             config.services = config.services.filter((s: store.ServiceConfig) => {
                 const serviceId = typeof s.id === 'string' ? s.id : JSON.stringify(s.id);
-                const removeId = typeof serviceToRemove.id === 'string' ? serviceToRemove.id : JSON.stringify(serviceToRemove.id);
+                const removeId = typeof serviceToRemove.id === 'string' ? 
+                    serviceToRemove.id : JSON.stringify(serviceToRemove.id);
                 return serviceId !== removeId;
             });
             
-            if (config.services.length === 0) {
-                await RemoveServicesConfig();
-            } else {
-                await UploadServicesConfig(JSON.stringify(config));
-            }
-            
+            await UploadServicesConfig(JSON.stringify(config));
             await loadServicesConfig();
             successMessage = 'Service removed successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = err?.toString() || 'Failed to remove service';
+        }
+    }
+    
+    async function removeAllServices() {
+        try {
+            await RemoveServicesConfig();
+            await loadServicesConfig();
+            successMessage = 'All services removed successfully';
+            setTimeout(() => successMessage = '', 3000);
+        } catch (err) {
+            errorMessage = err?.toString() || 'Failed to remove services';
         }
     }
     
@@ -169,7 +240,7 @@
         };
         
         reader.readAsText(file);
-        input.value = ''; // Reset input
+        input.value = '';
     }
     
     function getServiceIdDisplay(id: string | string[] | undefined): string {
@@ -182,13 +253,15 @@
 
 {#if $settingsOpen}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="settings-overlay" on:click={() => settingsOpen.set(false)}></div>
     <div class="settings-panel">
         <div class="settings-header">
             <h2>Settings</h2>
             <button class="close-button" on:click={() => settingsOpen.set(false)}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
             </button>
         </div>
@@ -196,17 +269,17 @@
         <div class="tabs">
             <button 
                 class="tab" 
-                class:active={$settingsTab === 'api'}
-                on:click={() => settingsTab.set('api')}
+                class:active={$settingsTab === 'general'}
+                on:click={() => settingsTab.set('general')}
             >
-                API Key
+                General
             </button>
             <button 
                 class="tab" 
                 class:active={$settingsTab === 'services'}
                 on:click={() => settingsTab.set('services')}
             >
-                Services
+                Service Management
             </button>
         </div>
         
@@ -218,38 +291,112 @@
             <div class="alert alert-success">{successMessage}</div>
         {/if}
         
-        {#if $settingsTab === 'api'}
+        {#if $settingsTab === 'general'}
             <div class="tab-content">
-                <div class="form-group">
-                    <label for="api-key">PagerDuty API Key</label>
-                    <input 
-                        id="api-key"
-                        type="password" 
-                        bind:value={apiKey}
-                        placeholder="Enter your PagerDuty API key"
-                    />
-                    <button class="btn btn-primary" on:click={saveApiKey}>
-                        Save API Key
-                    </button>
+                <!-- API Key Section -->
+                <div class="settings-section">
+                    <h3>API Key</h3>
+                    <p class="setting-description">Enter your PagerDuty API key</p>
+                    <div class="api-key-controls">
+                        <input 
+                            type="password" 
+                            bind:value={apiKey}
+                            placeholder="Enter your PagerDuty API key"
+                            class="settings-input"
+                        />
+                        <button class="btn btn-primary" on:click={saveApiKey}>
+                            Save API Key
+                        </button>
+                    </div>
                 </div>
                 
-                <!-- Assignment Filter Button -->
-                <div class="form-group" style="margin-top: 20px;">
-                    <button 
-                        class="assigned-button"
-                        class:active={filterByUser}
-                        on:click={toggleAssignedFilter}
-                    >
-                        {#if filterByUser}
-                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" style="margin-right: 6px;">
-                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        {/if}
-                        Assigned
-                    </button>
-                    <p style="margin-top: 8px; font-size: 12px; color: #6b7280;">
-                        Show only incidents assigned to you
-                    </p>
+                <!-- Show Assigned Incidents Only Toggle -->
+                <div class="settings-section">
+                    <div class="toggle-setting">
+                        <div>
+                            <h3>Show Assigned Incidents Only</h3>
+                            <p class="setting-description">Display only incidents assigned to you</p>
+                        </div>
+                        <button 
+                            class="toggle-button"
+                            class:active={filterByUser}
+                            on:click={toggleAssignedFilter}
+                        >
+                            <span class="toggle-slider"></span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Notifications Section -->
+                <div class="settings-section">
+                    <div class="toggle-setting">
+                        <div>
+                            <h3>Enable Notifications</h3>
+                            <p class="setting-description">Get sound notifications for new incidents</p>
+                        </div>
+                        <button 
+                            class="toggle-button"
+                            class:active={$notificationConfig.enabled}
+                            on:click={toggleNotifications}
+                        >
+                            <span class="toggle-slider"></span>
+                        </button>
+                    </div>
+                    
+                    {#if $notificationConfig.enabled}
+                        <div class="notification-settings">
+                            <div class="sound-selector">
+                                <label for="notification-sound">Notification Sound</label>
+                                <div class="sound-controls">
+                                    <select 
+                                        id="notification-sound"
+                                        value={$notificationConfig.sound}
+                                        on:change={changeNotificationSound}
+                                        class="sound-dropdown"
+                                    >
+                                        {#each $availableSounds as sound}
+                                            <option value={sound}>
+                                                {sound === 'default' ? 'Default (Say Service Name)' : sound}
+                                            </option>
+                                        {/each}
+                                    </select>
+                                    <button class="btn-test" on:click={testSound}>
+                                        Test
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="snooze-controls">
+                                <button 
+                                    class="btn-snooze"
+                                    class:snoozed={notificationSnoozed}
+                                    on:click={toggleSnooze}
+                                >
+                                    {#if notificationSnoozed}
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                            <line x1="22" y1="9" x2="22" y2="15"></line>
+                                        </svg>
+                                        Resume Sound
+                                    {:else}
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                            <line x1="23" y1="9" x2="17" y2="15"></line>
+                                            <line x1="17" y1="9" x2="23" y2="15"></line>
+                                        </svg>
+                                        Snooze Sound (30 min)
+                                    {/if}
+                                </button>
+                                <p class="snooze-description">
+                                    {#if notificationSnoozed}
+                                        Sound notifications are temporarily muted
+                                    {:else}
+                                        Temporarily mute sound playback (desktop notifications will still appear)
+                                    {/if}
+                                </p>
+                            </div>
+                        </div>
+                    {/if}
                 </div>
             </div>
         {:else if $settingsTab === 'services'}
@@ -347,17 +494,24 @@
     }
     
     .close-button {
-        background: transparent;
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        width: 20px;  
+        height: 20px; 
         border: none;
-        padding: 4px;
+        background: #f3f4f6;
+        border-radius: 8px;
         cursor: pointer;
-        color: #6b7280;
-        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         transition: all 0.2s;
+        color: #6b7280;
     }
     
     .close-button:hover {
-        background: #f3f4f6;
+        background: #e5e7eb;
         color: #111827;
     }
     
@@ -420,34 +574,9 @@
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
     
-    /* Assigned Button Styles */
-    .assigned-button {
-        display: inline-flex;
-        align-items: center;
-        padding: 8px 16px;
-        background: white;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        color: #6b7280;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .assigned-button:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-    
-    .assigned-button.active {
-        background: #3b82f6;
-        border-color: #3b82f6;
-        color: white;
-    }
     
     .btn {
-        padding: 8px 16px;
+        padding: 10px 20px;
         border: none;
         border-radius: 6px;
         font-size: 14px;
@@ -550,5 +679,162 @@
         font-size: 12px;
         color: #6b7280;
         margin: 4px 0 0 0;
+    }
+    
+    .settings-section {
+        padding: 20px;
+        border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .settings-section:last-child {
+        border-bottom: none;
+    }
+    
+    .settings-section h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #111827;
+        margin: 0 0 8px 0;
+    }
+
+        .api-key-controls {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    
+    .settings-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    
+    .toggle-setting {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .setting-description {
+        font-size: 12px;
+        color: #6b7280;
+        margin: 4px 0 0 0;
+    }
+    
+    .toggle-button {
+        position: relative;
+        width: 48px;
+        height: 24px;
+        background: #d1d5db;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    .toggle-button.active {
+        background: #3b82f6;
+    }
+    
+    .toggle-slider {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 20px;
+        height: 20px;
+        background: white;
+        border-radius: 50%;
+        transition: transform 0.2s;
+    }
+    
+    .toggle-button.active .toggle-slider {
+        transform: translateX(24px);
+    }
+    
+    .notification-settings {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid #e5e7eb;
+    }
+    
+    .sound-selector {
+        margin-bottom: 20px;
+    }
+    
+    .sound-selector label {
+        display: block;
+        font-size: 13px;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 8px;
+    }
+    
+    .sound-controls {
+        display: flex;
+        gap: 8px;
+    }
+    
+    .sound-dropdown {
+        flex: 1;
+        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        background: white;
+        cursor: pointer;
+    }
+    
+    .btn-test {
+        padding: 8px 16px;
+        background: #f3f4f6;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-test:hover {
+        background: #e5e7eb;
+    }
+    
+    .snooze-controls {
+        margin-top: 16px;
+    }
+    
+    .btn-snooze {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        background: white;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        width: 100%;
+    }
+    
+    .btn-snooze:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+    
+    .btn-snooze.snoozed {
+        background: #fef3c7;
+        border-color: #fbbf24;
+        color: #92400e;
+    }
+    
+    .snooze-description {
+        font-size: 12px;
+        color: #6b7280;
+        margin: 8px 0 0 0;
     }
 </style>

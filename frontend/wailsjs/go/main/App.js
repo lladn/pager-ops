@@ -10,8 +10,16 @@ export function GetAPIKey() {
   return window['go']['main']['App']['GetAPIKey']();
 }
 
+export function GetAvailableSounds() {
+  return window['go']['main']['App']['GetAvailableSounds']();
+}
+
 export function GetFilterByUser() {
   return window['go']['main']['App']['GetFilterByUser']();
+}
+
+export function GetNotificationConfig() {
+  return window['go']['main']['App']['GetNotificationConfig']();
 }
 
 export function GetOpenIncidents(arg1) {
@@ -30,6 +38,10 @@ export function GetServicesConfig() {
   return window['go']['main']['App']['GetServicesConfig']();
 }
 
+export function IsNotificationSnoozed() {
+  return window['go']['main']['App']['IsNotificationSnoozed']();
+}
+
 export function ReadFile(arg1) {
   return window['go']['main']['App']['ReadFile'](arg1);
 }
@@ -42,8 +54,20 @@ export function SetFilterByUser(arg1) {
   return window['go']['main']['App']['SetFilterByUser'](arg1);
 }
 
+export function SetNotificationEnabled(arg1) {
+  return window['go']['main']['App']['SetNotificationEnabled'](arg1);
+}
+
+export function SetNotificationSound(arg1) {
+  return window['go']['main']['App']['SetNotificationSound'](arg1);
+}
+
 export function SetSelectedServices(arg1) {
   return window['go']['main']['App']['SetSelectedServices'](arg1);
+}
+
+export function SnoozeNotificationSound(arg1) {
+  return window['go']['main']['App']['SnoozeNotificationSound'](arg1);
 }
 
 export function StartPolling() {
@@ -52,6 +76,14 @@ export function StartPolling() {
 
 export function StopPolling() {
   return window['go']['main']['App']['StopPolling']();
+}
+
+export function TestNotificationSound() {
+  return window['go']['main']['App']['TestNotificationSound']();
+}
+
+export function UnsnoozeNotificationSound() {
+  return window['go']['main']['App']['UnsnoozeNotificationSound']();
 }
 
 export function UploadServicesConfig(arg1) {
