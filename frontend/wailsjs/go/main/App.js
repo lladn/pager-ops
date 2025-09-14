@@ -26,6 +26,10 @@ export function GetOpenIncidents(arg1) {
   return window['go']['main']['App']['GetOpenIncidents'](arg1);
 }
 
+export function GetRateLimitStatus() {
+  return window['go']['main']['App']['GetRateLimitStatus']();
+}
+
 export function GetResolvedIncidents(arg1) {
   return window['go']['main']['App']['GetResolvedIncidents'](arg1);
 }
@@ -74,8 +78,16 @@ export function StartPolling() {
   return window['go']['main']['App']['StartPolling']();
 }
 
+export function StartResolvedPolling() {
+  return window['go']['main']['App']['StartResolvedPolling']();
+}
+
 export function StopPolling() {
   return window['go']['main']['App']['StopPolling']();
+}
+
+export function StopResolvedPolling() {
+  return window['go']['main']['App']['StopResolvedPolling']();
 }
 
 export function TestNotificationSound() {

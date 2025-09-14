@@ -16,6 +16,8 @@ export function GetNotificationConfig():Promise<main.NotificationConfig>;
 
 export function GetOpenIncidents(arg1:Array<string>):Promise<Array<database.IncidentData>>;
 
+export function GetRateLimitStatus():Promise<Record<string, any>>;
+
 export function GetResolvedIncidents(arg1:Array<string>):Promise<Array<database.IncidentData>>;
 
 export function GetSelectedServices():Promise<Array<string>>;
@@ -40,7 +42,11 @@ export function SnoozeNotificationSound(arg1:number):Promise<void>;
 
 export function StartPolling():Promise<void>;
 
+export function StartResolvedPolling():Promise<void>;
+
 export function StopPolling():Promise<void>;
+
+export function StopResolvedPolling():Promise<void>;
 
 export function TestNotificationSound():Promise<void>;
 
