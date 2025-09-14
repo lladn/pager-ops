@@ -19,21 +19,85 @@ import (
 
 // App struct
 type App struct {
-	ctx              context.Context
-	db               *database.DB
-	client           *store.Client
-	polling          bool
-	pollTicker       *time.Ticker
-	servicesConfig   *store.ServicesConfig
-	selectedServices []string
-	kr               keyring.Keyring
-	logger           *Logger
-	filterByUser     bool
-	mu               sync.RWMutex
-	pollMu           sync.RWMutex
-	notificationMgr  *NotificationManager
-	lastIncidents    map[string]string
-	lastIncidentsMu  sync.RWMutex
+	ctx                context.Context
+	db                 *database.DB
+	client             *store.Client
+	polling            bool
+	pollTicker         *time.Ticker
+	servicesConfig     *store.ServicesConfig
+	selectedServices   []string
+	kr                 keyring.Keyring
+	logger             *Logger
+	filterByUser       bool
+	mu                 sync.RWMutex
+	pollMu             sync.RWMutex
+	notificationMgr    *NotificationManager
+	lastIncidents      map[string]string
+	lastIncidentsMu    sync.RWMutex
+	resolvedPollTicker *time.Ticker
+	resolvedPolling    bool
+	resolvedPollMu     sync.RWMutex
+	rateLimitTracker   *RateLimitTracker
+}
+
+type RateLimitTracker struct {
+	mu         sync.Mutex
+	calls      []time.Time
+	windowSize time.Duration
+	maxCalls   int
+}
+
+func NewRateLimitTracker() *RateLimitTracker {
+	return &RateLimitTracker{
+		calls:      make([]time.Time, 0),
+		windowSize: time.Minute,
+		maxCalls:   960, // 960 requests per minute per user
+	}
+}
+
+// CanMakeCall checks if we can make an API call without exceeding rate limit
+func (r *RateLimitTracker) CanMakeCall() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-r.windowSize)
+
+	// Remove old calls outside the window
+	validCalls := make([]time.Time, 0)
+	for _, callTime := range r.calls {
+		if callTime.After(cutoff) {
+			validCalls = append(validCalls, callTime)
+		}
+	}
+	r.calls = validCalls
+
+	return len(r.calls) < r.maxCalls
+}
+
+// RecordCall records an API call
+func (r *RateLimitTracker) RecordCall() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, time.Now())
+}
+
+// GetCurrentRate returns the current call rate per minute
+func (r *RateLimitTracker) GetCurrentRate() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-r.windowSize)
+
+	count := 0
+	for _, callTime := range r.calls {
+		if callTime.After(cutoff) {
+			count++
+		}
+	}
+
+	return count
 }
 
 // Set default filterByUser to true:
@@ -107,6 +171,14 @@ func (a *App) startup(ctx context.Context) {
 		} else {
 			a.logger.Warn(fmt.Sprintf("Failed to initialize PagerDuty client: %v", err))
 		}
+	}
+
+	a.rateLimitTracker = NewRateLimitTracker()
+
+	// Start both polling mechanisms if client is initialized
+	if a.client != nil {
+		a.StartPolling()         // Existing 3-second polling for open incidents
+		a.StartResolvedPolling() // New 10-second polling for resolved incidents
 	}
 }
 
@@ -547,8 +619,8 @@ func (a *App) ReadFile(path string) (string, error) {
 
 // shutdown is called at application termination
 func (a *App) shutdown(ctx context.Context) {
-	// Stop polling
 	a.StopPolling()
+	a.StopResolvedPolling()
 
 	// Close database
 	if a.db != nil {
@@ -643,4 +715,109 @@ func (a *App) IsNotificationSnoozed() bool {
 		return false
 	}
 	return a.notificationMgr.IsSnoozeActive()
+}
+
+// StartResolvedPolling starts polling for resolved incidents only
+func (a *App) StartResolvedPolling() {
+	a.resolvedPollMu.Lock()
+	defer a.resolvedPollMu.Unlock()
+
+	if a.resolvedPolling {
+		return
+	}
+
+	a.resolvedPolling = true
+	a.resolvedPollTicker = time.NewTicker(30 * time.Second) // 30 second interval for resolved
+	a.logger.Info("Started resolved incidents polling (30s interval)")
+
+	go func() {
+		// Initial fetch
+		a.fetchResolvedIncidents()
+
+		for range a.resolvedPollTicker.C {
+			a.resolvedPollMu.RLock()
+			shouldContinue := a.resolvedPolling
+			a.resolvedPollMu.RUnlock()
+
+			if !shouldContinue {
+				break
+			}
+
+			// Check rate limit before making call
+			if a.rateLimitTracker.CanMakeCall() {
+				a.fetchResolvedIncidents()
+				a.rateLimitTracker.RecordCall()
+
+				// Log rate limit status every 10 calls
+				currentRate := a.rateLimitTracker.GetCurrentRate()
+				if currentRate%10 == 0 {
+					a.logger.Debug(fmt.Sprintf("Rate limit status: %d/960 calls per minute", currentRate))
+				}
+			} else {
+				a.logger.Warn("Rate limit approaching, skipping resolved incidents fetch")
+			}
+		}
+	}()
+}
+
+// StopResolvedPolling stops the resolved incidents polling
+func (a *App) StopResolvedPolling() {
+	a.resolvedPollMu.Lock()
+	defer a.resolvedPollMu.Unlock()
+
+	a.resolvedPolling = false
+	if a.resolvedPollTicker != nil {
+		a.resolvedPollTicker.Stop()
+		a.resolvedPollTicker = nil
+	}
+	a.logger.Info("Stopped resolved incidents polling")
+}
+
+// fetchResolvedIncidents fetches only resolved incidents
+func (a *App) fetchResolvedIncidents() {
+	if a.client == nil {
+		return
+	}
+
+	a.mu.RLock()
+	selectedServices := a.selectedServices
+	a.mu.RUnlock()
+
+	if len(selectedServices) == 0 {
+		return
+	}
+
+	// Fetch resolved incidents from last 48 hours
+	resolvedOpts := store.FetchOptions{
+		ServiceIDs: selectedServices,
+		Statuses:   []string{"resolved"},
+		Since:      time.Now().Add(-48 * time.Hour),
+	}
+
+	incidents, err := a.client.FetchIncidentsWithOptions(resolvedOpts)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
+		return
+	}
+
+	// Update database
+	for _, incident := range incidents {
+		if err := a.db.UpsertIncident(incident); err != nil {
+			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
+		}
+	}
+
+	// Emit event to update UI
+	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
+}
+
+// GetRateLimitStatus returns the current rate limit status
+func (a *App) GetRateLimitStatus() map[string]interface{} {
+	currentRate := a.rateLimitTracker.GetCurrentRate()
+	return map[string]interface{}{
+		"current":    currentRate,
+		"max":        960,
+		"remaining":  960 - currentRate,
+		"percentage": float64(currentRate) / 960.0 * 100,
+	}
 }
