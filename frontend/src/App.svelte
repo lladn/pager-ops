@@ -9,6 +9,7 @@
         loadResolvedIncidents,
         loadServicesConfig
     } from './stores/incidents';
+    import { initializeNotificationListeners, loadNotificationConfig, loadAvailableSounds } from './stores/notifications';
     
     import ToolBar from './components/ToolBar.svelte';
     import Header from './components/Header.svelte';
@@ -18,13 +19,18 @@
     let searchQuery = '';
     
     onMount(async () => {
-        // Initialize event listeners for backend updates
+        // Initialize all event listeners
         initializeEventListeners();
+        initializeNotificationListeners();
         
         // Load initial data
-        await loadServicesConfig();
-        await loadOpenIncidents();
-        await loadResolvedIncidents();
+        await Promise.all([
+            loadOpenIncidents(),
+            loadResolvedIncidents(),
+            loadServicesConfig(),
+            loadNotificationConfig(),
+            loadAvailableSounds()
+        ]);
     });
     
     function switchTab(tab: 'open' | 'resolved') {
