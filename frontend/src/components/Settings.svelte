@@ -400,7 +400,6 @@
                 </div>
             </div>
         {:else if $settingsTab === 'services'}
-            <!-- ... existing services tab content ... -->
             <div class="tab-content">
                 <div class="form-group">
                     <!-- svelte-ignore a11y-label-has-associated-control -->
@@ -431,21 +430,25 @@
                     </div>
                 {/if}
                 
-                <div class="form-group">
+                <div class="form-group add-service-section">
                     <h3>Add Service Manually</h3>
-                    <input 
-                        type="text" 
-                        bind:value={newServiceId}
-                        placeholder="Service ID (comma-separated for multiple)"
-                    />
-                    <input 
-                        type="text" 
-                        bind:value={newServiceName}
-                        placeholder="Service Name"
-                    />
-                    <button class="btn btn-primary" on:click={addService}>
-                        Add Service
-                    </button>
+                    <div class="add-service-inputs">
+                        <input 
+                            type="text" 
+                            bind:value={newServiceId}
+                            placeholder="Service ID (comma-separated for multiple)"
+                            class="service-input"
+                        />
+                        <input 
+                            type="text" 
+                            bind:value={newServiceName}
+                            placeholder="Service Name"
+                            class="service-input"
+                        />
+                        <button class="btn btn-primary" on:click={addService}>
+                            Add Service
+                        </button>
+                    </div>
                 </div>
             </div>
         {/if}
@@ -453,7 +456,6 @@
 {/if}
 
 <style>
-    /* Keep all your existing styles exactly as they are */
     .settings-overlay {
         position: fixed;
         top: 0;
@@ -574,6 +576,43 @@
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
     
+    /* Fixed CSS for Add Service section */
+    .add-service-section {
+        padding: 16px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        margin-top: 20px;
+    }
+    
+    .add-service-section h3 {
+        margin-top: 0;
+        margin-bottom: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #111827;
+    }
+    
+    .add-service-inputs {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .service-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+    
+    .service-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
     
     .btn {
         padding: 10px 20px;
@@ -588,6 +627,7 @@
     .btn-primary {
         background: #3b82f6;
         color: white;
+        align-self: flex-start;
     }
     
     .btn-primary:hover {
@@ -697,7 +737,7 @@
         margin: 0 0 8px 0;
     }
 
-        .api-key-controls {
+    .api-key-controls {
         display: flex;
         gap: 12px;
         align-items: flex-start;
@@ -785,6 +825,18 @@
         font-size: 14px;
         background: white;
         cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        background-size: 20px;
+        padding-right: 36px;
+    }
+    
+    .sound-dropdown:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
     
     .btn-test {

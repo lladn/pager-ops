@@ -42,9 +42,9 @@ func (c *Client) FetchResolvedIncidents(
 	serviceIDs []string) (
 	[]database.IncidentData, error,
 ) {
-	// Calculate date range for last week
+	// Calculate date range for last 3 days
 	until := time.Now()
-	since := until.AddDate(0, 0, -7)
+	since := until.AddDate(0, 0, -3)
 
 	opts := pagerduty.ListIncidentsOptions{
 		Statuses:   []string{"resolved"},
