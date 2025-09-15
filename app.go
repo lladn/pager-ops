@@ -45,6 +45,8 @@ type App struct {
 	circuitBreaker        *CircuitBreaker
 	previousOpenIncidents map[string]database.IncidentData
 	previousOpenMu        sync.RWMutex
+	shutdownChan          chan struct{} // Added for clean shutdown
+	shutdownWg            sync.WaitGroup // Added for goroutine tracking
 }
 
 // RateLimitTracker - Enhanced but structure unchanged
@@ -214,6 +216,7 @@ func NewApp() *App {
 		filterByUser:          true,
 		lastIncidents:         make(map[string]string),
 		previousOpenIncidents: make(map[string]database.IncidentData),
+		shutdownChan:          make(chan struct{}),
 	}
 }
 
@@ -330,6 +333,13 @@ func (a *App) fetchAndUpdateIncidents() {
 		return
 	}
 
+	// Check if shutdown is in progress
+	select {
+	case <-a.shutdownChan:
+		return
+	default:
+	}
+
 	// Check circuit breaker
 	if !a.circuitBreaker.Allow() {
 		a.logger.Warn("Circuit breaker open, skipping fetch")
@@ -364,7 +374,7 @@ func (a *App) fetchAndUpdateIncidents() {
 		}
 	}
 
-	// Fetch open incidents with retry logic
+	// Fetch open incidents WITHOUT pagination - they're typically 10-200 items
 	incidents, err := a.fetchWithRetry(func() ([]database.IncidentData, error) {
 		return a.client.FetchOpenIncidents(selectedServices, userID)
 	}, 3)
@@ -405,33 +415,23 @@ func (a *App) fetchAndUpdateIncidents() {
 		}
 	}
 
-	// Also fetch recently resolved incidents for immediate status updates
-	resolvedOpts := store.FetchOptions{
-		ServiceIDs: selectedServices,
-		Statuses:   []string{"resolved"},
-		Since:      time.Now().Add(-24 * time.Hour),
-	}
-
-	resolvedIncidents, err := a.client.FetchIncidentsWithOptions(resolvedOpts)
-	if err != nil {
-		a.logger.Warn(fmt.Sprintf("Failed to fetch recent resolved incidents: %v", err))
-		// Don't return here, continue with open incidents update
+	// Check shutdown before database operations
+	select {
+	case <-a.shutdownChan:
+		return
+	default:
 	}
 
 	// Update database with all incidents
 	updatedCount := 0
 	for _, incident := range incidents {
 		if err := a.db.UpsertIncident(incident); err != nil {
+			// Check if error is due to database being closed
+			if err.Error() == "sql: database is closed" {
+				a.logger.Info("Database closed, stopping incident updates")
+				return
+			}
 			a.logger.Error(fmt.Sprintf("Failed to upsert incident: %v", err))
-		} else {
-			updatedCount++
-		}
-	}
-
-	// Update resolved incidents
-	for _, incident := range resolvedIncidents {
-		if err := a.db.UpsertIncident(incident); err != nil {
-			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
 		} else {
 			updatedCount++
 		}
@@ -443,7 +443,11 @@ func (a *App) fetchAndUpdateIncidents() {
 
 	// If transitions detected, immediately fetch recent resolved
 	if hasTransitions {
-		go a.fetchRecentResolvedIncidents()
+		a.shutdownWg.Add(1)
+		go func() {
+			defer a.shutdownWg.Done()
+			a.fetchRecentResolvedIncidents()
+		}()
 	}
 
 	// Update previous state
@@ -457,6 +461,9 @@ func (a *App) fetchAndUpdateIncidents() {
 	// After updating database, check for triggered incidents
 	openIncidents, err := a.db.GetOpenIncidents()
 	if err != nil {
+		if err.Error() == "sql: database is closed" {
+			return
+		}
 		a.logger.Error(fmt.Sprintf("Failed to get open incidents for notification check: %v", err))
 		return
 	}
@@ -514,28 +521,37 @@ func (a *App) StartPolling() {
 	a.pollTicker = time.NewTicker(3 * time.Second)
 	a.logger.Info("Started incident polling (3s interval)")
 
+	a.shutdownWg.Add(1)
 	go func() {
+		defer a.shutdownWg.Done()
+		
 		// Initial fetch immediately
 		a.fetchAndUpdateIncidents()
 
-		for range a.pollTicker.C {
-			// Check polling state with lock
-			a.pollMu.RLock()
-			shouldContinue := a.polling
-			a.pollMu.RUnlock()
+		for {
+			select {
+			case <-a.shutdownChan:
+				a.logger.Info("Open incidents polling stopped by shutdown signal")
+				return
+			case <-a.pollTicker.C:
+				// Check polling state with lock
+				a.pollMu.RLock()
+				shouldContinue := a.polling
+				a.pollMu.RUnlock()
 
-			if !shouldContinue {
-				break
+				if !shouldContinue {
+					return
+				}
+
+				// Check rate limit before making call
+				if !a.rateLimitTracker.CanMakeCall() {
+					a.logger.Warn("Rate limit approaching threshold, skipping fetch")
+					continue
+				}
+
+				a.fetchAndUpdateIncidents()
+				a.rateLimitTracker.RecordCall()
 			}
-
-			// Check rate limit before making call
-			if !a.rateLimitTracker.CanMakeCall() {
-				a.logger.Warn("Rate limit approaching threshold, skipping fetch")
-				continue
-			}
-
-			a.fetchAndUpdateIncidents()
-			a.rateLimitTracker.RecordCall()
 		}
 	}()
 }
@@ -566,31 +582,40 @@ func (a *App) StartResolvedPolling() {
 	a.resolvedPollTicker = time.NewTicker(10 * time.Minute)
 	a.logger.Info("Started resolved incidents polling (10m interval)")
 
+	a.shutdownWg.Add(1)
 	go func() {
+		defer a.shutdownWg.Done()
+		
 		// Initial fetch
 		a.fetchResolvedIncidentsAdaptive()
 
-		for range a.resolvedPollTicker.C {
-			a.resolvedPollMu.RLock()
-			shouldContinue := a.resolvedPolling
-			a.resolvedPollMu.RUnlock()
+		for {
+			select {
+			case <-a.shutdownChan:
+				a.logger.Info("Resolved incidents polling stopped by shutdown signal")
+				return
+			case <-a.resolvedPollTicker.C:
+				a.resolvedPollMu.RLock()
+				shouldContinue := a.resolvedPolling
+				a.resolvedPollMu.RUnlock()
 
-			if !shouldContinue {
-				break
-			}
-
-			// Check rate limit before making call
-			if a.rateLimitTracker.CanMakeCall() {
-				a.fetchResolvedIncidentsAdaptive()
-				a.rateLimitTracker.RecordCall()
-
-				// Log rate limit status every 10 calls
-				currentRate := a.rateLimitTracker.GetCurrentRate()
-				if currentRate%10 == 0 {
-					a.logger.Debug(fmt.Sprintf("Rate limit status: %d/960 calls per minute", currentRate))
+				if !shouldContinue {
+					return
 				}
-			} else {
-				a.logger.Warn("Rate limit approaching, skipping resolved incidents fetch")
+
+				// Check rate limit before making call
+				if a.rateLimitTracker.CanMakeCall() {
+					a.fetchResolvedIncidentsAdaptive()
+					a.rateLimitTracker.RecordCall()
+
+					// Log rate limit status every 10 calls
+					currentRate := a.rateLimitTracker.GetCurrentRate()
+					if currentRate%10 == 0 {
+						a.logger.Debug(fmt.Sprintf("Rate limit status: %d/960 calls per minute", currentRate))
+					}
+				} else {
+					a.logger.Warn("Rate limit approaching, skipping resolved incidents fetch")
+				}
 			}
 		}
 	}()
@@ -653,6 +678,13 @@ func (a *App) fetchResolvedIncidentsAdaptive() {
 		return
 	}
 
+	// Check if shutdown is in progress
+	select {
+	case <-a.shutdownChan:
+		return
+	default:
+	}
+
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
 	a.mu.RUnlock()
@@ -688,7 +720,8 @@ func (a *App) fetchResolvedIncidentsAdaptive() {
 		Until:      now,
 	}
 
-	incidents, err := a.client.FetchIncidentsWithOptions(resolvedOpts)
+	// Use paginated fetch ONLY for resolved incidents
+	incidents, err := a.client.FetchIncidentsWithPagination(resolvedOpts, 100)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 		a.circuitBreaker.RecordFailure()
@@ -697,9 +730,20 @@ func (a *App) fetchResolvedIncidentsAdaptive() {
 
 	a.circuitBreaker.RecordSuccess()
 
+	// Check shutdown before database operations
+	select {
+	case <-a.shutdownChan:
+		return
+	default:
+	}
+
 	// Update database
 	for _, incident := range incidents {
 		if err := a.db.UpsertIncident(incident); err != nil {
+			if err.Error() == "sql: database is closed" {
+				a.logger.Info("Database closed, stopping resolved incident updates")
+				return
+			}
 			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
 		}
 	}
@@ -711,7 +755,9 @@ func (a *App) fetchResolvedIncidentsAdaptive() {
 
 	// Persist to database
 	if err := a.db.SetState("last_resolved_fetch", now.Format(time.RFC3339)); err != nil {
-		a.logger.Warn(fmt.Sprintf("Failed to persist last fetch time: %v", err))
+		if err.Error() != "sql: database is closed" {
+			a.logger.Warn(fmt.Sprintf("Failed to persist last fetch time: %v", err))
+		}
 	}
 
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
@@ -904,22 +950,48 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 	cachedIncidents, err := a.db.GetResolvedIncidentsByServices(serviceIDs)
 	if err == nil && len(cachedIncidents) > 0 {
 		// Return cached data immediately for faster load
+		a.shutdownWg.Add(1)
 		go func() {
+			defer a.shutdownWg.Done()
+			
+			// Check shutdown
+			select {
+			case <-a.shutdownChan:
+				return
+			default:
+			}
+			
 			// Check rate limit
 			if !a.rateLimitTracker.CanMakeCall() {
 				return
 			}
 
-			// Fetch fresh data in background
-			incidents, err := a.client.FetchResolvedIncidents(serviceIDs)
+			// Fetch fresh data in background WITH PAGINATION for resolved
+			opts := store.FetchOptions{
+				ServiceIDs: serviceIDs,
+				Statuses:   []string{"resolved"},
+				Since:      time.Now().Add(-48 * time.Hour),
+			}
+			
+			incidents, err := a.client.FetchIncidentsWithPagination(opts, 100)
 			if err != nil {
 				a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 				return
 			}
+			
+			// Check shutdown before database operations
+			select {
+			case <-a.shutdownChan:
+				return
+			default:
+			}
+			
 			// Update database
 			for _, incident := range incidents {
 				if err := a.db.UpsertIncident(incident); err != nil {
-					a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
+					if err.Error() != "sql: database is closed" {
+						a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
+					}
 				}
 			}
 
@@ -930,8 +1002,14 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 		return cachedIncidents, nil
 	}
 
-	// No cache, fetch from PagerDuty
-	incidents, err := a.client.FetchResolvedIncidents(serviceIDs)
+	// No cache, fetch from PagerDuty WITH PAGINATION
+	opts := store.FetchOptions{
+		ServiceIDs: serviceIDs,
+		Statuses:   []string{"resolved"},
+		Since:      time.Now().Add(-48 * time.Hour),
+	}
+	
+	incidents, err := a.client.FetchIncidentsWithPagination(opts, 100)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 		return nil, fmt.Errorf("failed to fetch resolved incidents: %w", err)
@@ -1219,17 +1297,43 @@ func (a *App) IsNotificationSnoozed() bool {
 
 // shutdown - Original method unchanged
 func (a *App) shutdown(ctx context.Context) {
+	a.logger.Info("PagerOps shutting down...")
+	
+	// Signal all goroutines to stop
+	close(a.shutdownChan)
+	
+	// Stop polling
 	a.StopPolling()
 	a.StopResolvedPolling()
 
-	// Close database
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		a.shutdownWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		a.logger.Info("All goroutines stopped successfully")
+	case <-time.After(5 * time.Second):
+		a.logger.Warn("Timeout waiting for goroutines to stop")
+	}
+
+	// Close database after all goroutines have stopped
 	if a.db != nil {
 		if err := a.db.Close(); err != nil {
 			a.logger.Error(fmt.Sprintf("Failed to close database: %v", err))
+		} else {
+			a.logger.Info("Database closed successfully")
 		}
 	}
 
-	a.logger.Info("PagerOps shutting down...")
+	// Close logger last
+	if a.logger != nil {
+		a.logger.Info("Shutdown complete")
+		a.logger.Close()
+	}
 }
 
 // Helper function to compare slices
