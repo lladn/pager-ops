@@ -110,16 +110,18 @@ func (nm *NotificationManager) UnsnoozeSound() {
 
 func (nm *NotificationManager) IsSnoozeActive() bool {
 	nm.mu.RLock()
-	defer nm.mu.RUnlock()
+	snoozed := nm.config.Snoozed
+	snoozeUntil := nm.config.SnoozeUntil
+	nm.mu.RUnlock() // Release the read lock before potentially calling UnsnoozeSound
 
-	if !nm.config.Snoozed {
+	if !snoozed {
 		return false
 	}
 
 	// Check if snooze period has expired
-	if time.Now().After(nm.config.SnoozeUntil) {
-		// Create a goroutine to handle the unsnooze to avoid deadlock
-		go nm.UnsnoozeSound()
+	if time.Now().After(snoozeUntil) {
+		// Unsnooze without holding any locks to avoid deadlock
+		nm.UnsnoozeSound()
 		return false
 	}
 
