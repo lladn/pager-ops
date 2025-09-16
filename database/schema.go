@@ -431,6 +431,29 @@ func (db *DB) GetIncidentStats() (map[string]interface{}, error) {
 
 	return stats, nil
 }
+func (db *DB) GetNewestResolvedIncidentDate() (time.Time, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	var updatedAt time.Time
+	query := `
+		SELECT updated_at
+		FROM incidents
+		WHERE status = 'resolved'
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`
+	
+	err := db.conn.QueryRow(query).Scan(&updatedAt)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil // No resolved incidents found
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get newest resolved incident date: %w", err)
+	}
+
+	return updatedAt, nil
+}
 
 // Close - ORIGINAL METHOD UNCHANGED
 func (db *DB) Close() error {
