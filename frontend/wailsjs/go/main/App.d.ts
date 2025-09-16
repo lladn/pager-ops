@@ -44,9 +44,13 @@ export function StartPolling():Promise<void>;
 
 export function StartResolvedPolling():Promise<void>;
 
+export function StartUserPolling():Promise<void>;
+
 export function StopPolling():Promise<void>;
 
 export function StopResolvedPolling():Promise<void>;
+
+export function StopUserPolling():Promise<void>;
 
 export function TestNotificationSound():Promise<void>;
 

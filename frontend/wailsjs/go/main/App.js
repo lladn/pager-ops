@@ -82,12 +82,20 @@ export function StartResolvedPolling() {
   return window['go']['main']['App']['StartResolvedPolling']();
 }
 
+export function StartUserPolling() {
+  return window['go']['main']['App']['StartUserPolling']();
+}
+
 export function StopPolling() {
   return window['go']['main']['App']['StopPolling']();
 }
 
 export function StopResolvedPolling() {
   return window['go']['main']['App']['StopResolvedPolling']();
+}
+
+export function StopUserPolling() {
+  return window['go']['main']['App']['StopUserPolling']();
 }
 
 export function TestNotificationSound() {
