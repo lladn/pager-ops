@@ -51,6 +51,7 @@ Thumbs.db
 
 # --- db ---- 
 *.db
+*.db*
 
 
 service_json/*
