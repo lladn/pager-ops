@@ -1,253 +1,15 @@
 <script lang="ts">
-    import { settingsOpen, settingsTab, servicesConfig, loadServicesConfig, loadOpenIncidents, loadResolvedIncidents } from '../stores/incidents';
-    import { notificationConfig, availableSounds, loadNotificationConfig, loadAvailableSounds } from '../stores/notifications';
-    import { 
-        ConfigureAPIKey, GetAPIKey, UploadServicesConfig, RemoveServicesConfig, 
-        GetFilterByUser, SetFilterByUser, SetNotificationEnabled, SetNotificationSound,
-        TestNotificationSound, SnoozeNotificationSound, UnsnoozeNotificationSound,
-        IsNotificationSnoozed
-    } from '../../wailsjs/go/main/App';
-    import { store } from '../../wailsjs/go/models';
+    import { settingsOpen, settingsTab } from '../stores/incidents';
+    import SettingsGeneral from './SettingsGeneral.svelte';
+    import SettingsService from './SettingsService.svelte';
     
-    let apiKey = '';
-    let newServiceId = '';
-    let newServiceName = '';
     let errorMessage = '';
     let successMessage = '';
-    let filterByUser = true;
-    let notificationSnoozed = false;
     
-    // Load data when settings open
-    $: if ($settingsOpen) {
-        if ($settingsTab === 'general') {
-            loadApiKey();
-            loadFilterState();
-            loadNotificationConfig();
-            loadAvailableSounds();
-            checkSnoozeStatus();
-        }
-    }
-    
-    async function checkSnoozeStatus() {
-        try {
-            notificationSnoozed = await IsNotificationSnoozed();
-        } catch (err) {
-            notificationSnoozed = false;
-        }
-    }
-    
-    async function loadApiKey() {
-        try {
-            const key = await GetAPIKey();
-            apiKey = key || '';
-        } catch (err) {
-            apiKey = '';
-        }
-    }
-    
-    async function loadFilterState() {
-        try {
-            const state = await GetFilterByUser();
-            filterByUser = state;
-        } catch (err) {
-            filterByUser = true;
-            try {
-                await SetFilterByUser(true);
-            } catch (e) {
-                // Ignore error on setting default
-            }
-        }
-    }
-    
-    async function saveApiKey() {
+    // Clear messages when switching tabs
+    $: if ($settingsTab) {
         errorMessage = '';
         successMessage = '';
-        
-        if (!apiKey.trim()) {
-            errorMessage = 'API key is required';
-            return;
-        }
-        
-        try {
-            await ConfigureAPIKey(apiKey);
-            successMessage = 'API key saved successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = err?.toString() || 'Failed to save API key';
-        }
-    }
-    
-    async function toggleAssignedFilter() {
-        try {
-            const newState = !filterByUser;
-            await SetFilterByUser(newState);
-            filterByUser = newState;
-            await loadOpenIncidents();
-            await loadResolvedIncidents();
-        } catch (err) {
-            errorMessage = 'Failed to toggle assignment filter';
-        }
-    }
-    
-    async function toggleNotifications() {
-        try {
-            const newState = !$notificationConfig.enabled;
-            await SetNotificationEnabled(newState);
-            await loadNotificationConfig();
-            successMessage = `Notifications ${newState ? 'enabled' : 'disabled'}`;
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to toggle notifications';
-        }
-    }
-    
-    async function changeNotificationSound(event: Event) {
-        const select = event.target as HTMLSelectElement;
-        const sound = select.value;
-        
-        try {
-            await SetNotificationSound(sound);
-            await loadNotificationConfig();
-            successMessage = 'Notification sound updated';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to update notification sound';
-        }
-    }
-    
-    async function testSound() {
-        try {
-            await TestNotificationSound();
-        } catch (err) {
-            errorMessage = 'Failed to test sound';
-        }
-    }
-    
-    async function toggleSnooze() {
-        try {
-            if (notificationSnoozed) {
-                await UnsnoozeNotificationSound();
-                notificationSnoozed = false;
-                successMessage = 'Sound notifications resumed';
-            } else {
-                await SnoozeNotificationSound(30);
-                notificationSnoozed = true;
-                successMessage = 'Sound snoozed for 30 minutes';
-            }
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to toggle snooze';
-        }
-    }
-    
-    // Services tab functions
-    async function addService() {
-        errorMessage = '';
-        successMessage = '';
-        
-        if (!newServiceId.trim() || !newServiceName.trim()) {
-            errorMessage = 'Service ID and Name are required';
-            return;
-        }
-        
-        try {
-            const config = $servicesConfig || { services: [] };
-            const serviceIds = newServiceId.split(',').map(id => id.trim()).filter(id => id);
-            
-            for (const serviceId of serviceIds) {
-                const exists = config.services.some((s: store.ServiceConfig) => {
-                    if (typeof s.id === 'string') {
-                        return s.id === serviceId;
-                    } else if (Array.isArray(s.id)) {
-                        return s.id.includes(serviceId);
-                    }
-                    return false;
-                });
-                
-                if (exists) {
-                    errorMessage = `Service with ID ${serviceId} already exists`;
-                    return;
-                }
-            }
-            
-            const newService: store.ServiceConfig = new store.ServiceConfig({
-                id: serviceIds.length === 1 ? serviceIds[0] : serviceIds,
-                name: newServiceName
-            });
-            
-            config.services.push(newService);
-            await UploadServicesConfig(JSON.stringify(config));
-            await loadServicesConfig();
-            
-            newServiceId = '';
-            newServiceName = '';
-            successMessage = 'Service added successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = err?.toString() || 'Failed to add service';
-        }
-    }
-    
-    async function removeService(serviceToRemove: store.ServiceConfig) {
-        try {
-            const config = $servicesConfig;
-            if (!config) return;
-            
-            config.services = config.services.filter((s: store.ServiceConfig) => {
-                const serviceId = typeof s.id === 'string' ? s.id : JSON.stringify(s.id);
-                const removeId = typeof serviceToRemove.id === 'string' ? 
-                    serviceToRemove.id : JSON.stringify(serviceToRemove.id);
-                return serviceId !== removeId;
-            });
-            
-            await UploadServicesConfig(JSON.stringify(config));
-            await loadServicesConfig();
-            successMessage = 'Service removed successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = err?.toString() || 'Failed to remove service';
-        }
-    }
-    
-    async function removeAllServices() {
-        try {
-            await RemoveServicesConfig();
-            await loadServicesConfig();
-            successMessage = 'All services removed successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = err?.toString() || 'Failed to remove services';
-        }
-    }
-    
-    async function handleFileUpload(event: Event) {
-        const input = event.target as HTMLInputElement;
-        const file = input.files?.[0];
-        
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const content = e.target?.result as string;
-                await UploadServicesConfig(content);
-                await loadServicesConfig();
-                successMessage = 'Services configuration uploaded successfully';
-                setTimeout(() => successMessage = '', 3000);
-            } catch (err) {
-                errorMessage = err?.toString() || 'Failed to upload configuration';
-            }
-        };
-        
-        reader.readAsText(file);
-        input.value = '';
-    }
-    
-    function getServiceIdDisplay(id: string | string[] | undefined): string {
-        if (!id) return '';
-        if (typeof id === 'string') return id;
-        if (Array.isArray(id)) return id.join(', ');
-        return '';
     }
 </script>
 
@@ -258,6 +20,7 @@
     <div class="settings-panel">
         <div class="settings-header">
             <h2>Settings</h2>
+            <p class="settings-subtitle">Configure your PagerOps settings</p>
             <button class="close-button" on:click={() => settingsOpen.set(false)}>
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -284,174 +47,33 @@
         </div>
         
         {#if errorMessage}
-            <div class="alert alert-error">{errorMessage}</div>
+            <div class="alert alert-error">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                {errorMessage}
+            </div>
         {/if}
         
         {#if successMessage}
-            <div class="alert alert-success">{successMessage}</div>
+            <div class="alert alert-success">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                {successMessage}
+            </div>
         {/if}
         
-        {#if $settingsTab === 'general'}
-            <div class="tab-content">
-                <!-- API Key Section -->
-                <div class="settings-section">
-                    <h3>API Key</h3>
-                    <p class="setting-description">Enter your PagerDuty API key</p>
-                    <div class="api-key-controls">
-                        <input 
-                            type="password" 
-                            bind:value={apiKey}
-                            placeholder="Enter your PagerDuty API key"
-                            class="settings-input"
-                        />
-                        <button class="btn btn-primary" on:click={saveApiKey}>
-                            Save API Key
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Show Assigned Incidents Only Toggle -->
-                <div class="settings-section">
-                    <div class="toggle-setting">
-                        <div>
-                            <h3>Show Assigned Incidents Only</h3>
-                            <p class="setting-description">Display only incidents assigned to you</p>
-                        </div>
-                        <button 
-                            class="toggle-button"
-                            class:active={filterByUser}
-                            on:click={toggleAssignedFilter}
-                        >
-                            <span class="toggle-slider"></span>
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Notifications Section -->
-                <div class="settings-section">
-                    <div class="toggle-setting">
-                        <div>
-                            <h3>Enable Notifications</h3>
-                            <p class="setting-description">Get sound notifications for new incidents</p>
-                        </div>
-                        <button 
-                            class="toggle-button"
-                            class:active={$notificationConfig.enabled}
-                            on:click={toggleNotifications}
-                        >
-                            <span class="toggle-slider"></span>
-                        </button>
-                    </div>
-                    
-                    {#if $notificationConfig.enabled}
-                        <div class="notification-settings">
-                            <div class="sound-selector">
-                                <label for="notification-sound">Notification Sound</label>
-                                <div class="sound-controls">
-                                    <select 
-                                        id="notification-sound"
-                                        value={$notificationConfig.sound}
-                                        on:change={changeNotificationSound}
-                                        class="sound-dropdown"
-                                    >
-                                        {#each $availableSounds as sound}
-                                            <option value={sound}>
-                                                {sound === 'default' ? 'Default (Say Service Name)' : sound}
-                                            </option>
-                                        {/each}
-                                    </select>
-                                    <button class="btn-test" on:click={testSound}>
-                                        Test
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="snooze-controls">
-                                <button 
-                                    class="btn-snooze"
-                                    class:snoozed={notificationSnoozed}
-                                    on:click={toggleSnooze}
-                                >
-                                    {#if notificationSnoozed}
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                            <line x1="22" y1="9" x2="22" y2="15"></line>
-                                        </svg>
-                                        Resume Sound
-                                    {:else}
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                            <line x1="23" y1="9" x2="17" y2="15"></line>
-                                            <line x1="17" y1="9" x2="23" y2="15"></line>
-                                        </svg>
-                                        Snooze Sound (30 min)
-                                    {/if}
-                                </button>
-                                <p class="snooze-description">
-                                    {#if notificationSnoozed}
-                                        Sound notifications are temporarily muted
-                                    {:else}
-                                        Temporarily mute sound playback (desktop notifications will still appear)
-                                    {/if}
-                                </p>
-                            </div>
-                        </div>
-                    {/if}
-                </div>
-            </div>
-        {:else if $settingsTab === 'services'}
-            <div class="tab-content">
-                <div class="form-group">
-                    <!-- svelte-ignore a11y-label-has-associated-control -->
-                    <label>Upload Services Configuration</label>
-                    <input 
-                        type="file" 
-                        accept=".json"
-                        on:change={handleFileUpload}
-                        class="file-input"
-                    />
-                    <p class="help-text">Upload a JSON file with your services configuration</p>
-                </div>
-                
-                {#if $servicesConfig && $servicesConfig.services.length > 0}
-                    <div class="services-list">
-                        <h3>Configured Services</h3>
-                        {#each $servicesConfig.services as service}
-                            <div class="service-item">
-                                <div class="service-info">
-                                    <strong>{service.name}</strong>
-                                    <span class="service-id">{getServiceIdDisplay(service.id)}</span>
-                                </div>
-                                <button class="btn-remove" on:click={() => removeService(service)}>
-                                    Remove
-                                </button>
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-                
-                <div class="form-group add-service-section">
-                    <h3>Add Service Manually</h3>
-                    <div class="add-service-inputs">
-                        <input 
-                            type="text" 
-                            bind:value={newServiceId}
-                            placeholder="Service ID (comma-separated for multiple)"
-                            class="service-input"
-                        />
-                        <input 
-                            type="text" 
-                            bind:value={newServiceName}
-                            placeholder="Service Name"
-                            class="service-input"
-                        />
-                        <button class="btn btn-primary" on:click={addService}>
-                            Add Service
-                        </button>
-                    </div>
-                </div>
-            </div>
-        {/if}
+        <div class="tab-content">
+            {#if $settingsTab === 'general'}
+                <SettingsGeneral bind:errorMessage bind:successMessage />
+            {:else if $settingsTab === 'services'}
+                <SettingsService bind:errorMessage bind:successMessage />
+            {/if}
+        </div>
     </div>
 {/if}
 
@@ -463,7 +85,18 @@
         right: 0;
         bottom: 0;
         background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(4px);
         z-index: 999;
+        animation: fadeIn 0.2s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
     }
     
     .settings-panel {
@@ -474,35 +107,52 @@
         background: white;
         border-radius: 12px;
         width: 90%;
-        max-width: 500px;
-        max-height: 80vh;
+        max-width: 560px;
+        max-height: 85vh;
         overflow-y: auto;
         z-index: 1000;
-        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        animation: slideUp 0.3s ease-out;
+    }
+    
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translate(-50%, -40%);
+        }
+        to {
+            opacity: 1;
+            transform: translate(-50%, -50%);
+        }
     }
     
     .settings-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 20px;
+        position: relative;
+        padding: 24px;
         border-bottom: 1px solid #e5e7eb;
     }
     
     .settings-header h2 {
         margin: 0;
         font-size: 20px;
+        font-weight: 600;
         color: #111827;
+    }
+    
+    .settings-subtitle {
+        margin: 4px 0 0 0;
+        font-size: 13px;
+        color: #6b7280;
     }
     
     .close-button {
         position: absolute;
         top: 20px;
         right: 20px;
-        width: 20px;  
-        height: 20px; 
+        width: 32px;
+        height: 32px;
         border: none;
-        background: #f3f4f6;
+        background: #f9fafb;
         border-radius: 8px;
         cursor: pointer;
         display: flex;
@@ -513,18 +163,20 @@
     }
     
     .close-button:hover {
-        background: #e5e7eb;
-        color: #111827;
+        background: #f3f4f6;
+        color: #374151;
+        transform: rotate(90deg);
     }
     
     .tabs {
         display: flex;
         border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
     }
     
     .tab {
         flex: 1;
-        padding: 12px;
+        padding: 14px 16px;
         background: transparent;
         border: none;
         cursor: pointer;
@@ -533,127 +185,49 @@
         color: #6b7280;
         border-bottom: 2px solid transparent;
         transition: all 0.2s;
+        position: relative;
     }
     
     .tab:hover {
         color: #374151;
+        background: rgba(255, 255, 255, 0.5);
     }
     
     .tab.active {
         color: #3b82f6;
+        background: white;
         border-bottom-color: #3b82f6;
     }
     
     .tab-content {
-        padding: 20px;
-    }
-    
-    .form-group {
-        margin-bottom: 20px;
-    }
-    
-    .form-group label {
-        display: block;
-        margin-bottom: 8px;
-        font-size: 14px;
-        font-weight: 500;
-        color: #374151;
-    }
-    
-    .form-group input[type="text"],
-    .form-group input[type="password"] {
-        width: 100%;
-        padding: 8px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        margin-bottom: 12px;
-    }
-    
-    .form-group input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    /* Fixed CSS for Add Service section */
-    .add-service-section {
-        padding: 16px;
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        margin-top: 20px;
-    }
-    
-    .add-service-section h3 {
-        margin-top: 0;
-        margin-bottom: 12px;
-        font-size: 16px;
-        font-weight: 600;
-        color: #111827;
-    }
-    
-    .add-service-inputs {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-    
-    .service-input {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        transition: all 0.2s;
-    }
-    
-    .service-input:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .btn {
-        padding: 10px 20px;
-        border: none;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .btn-primary {
-        background: #3b82f6;
-        color: white;
-        align-self: flex-start;
-    }
-    
-    .btn-primary:hover {
-        background: #2563eb;
-    }
-    
-    .btn-remove {
-        padding: 4px 12px;
-        background: #ef4444;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .btn-remove:hover {
-        background: #dc2626;
+        background: white;
+        min-height: 200px;
     }
     
     .alert {
-        padding: 12px;
-        border-radius: 6px;
-        margin: 16px 20px;
+        margin: 16px;
+        padding: 12px 16px;
+        border-radius: 8px;
         font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        animation: slideDown 0.3s ease-out;
+    }
+    
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .alert svg {
+        flex-shrink: 0;
     }
     
     .alert-error {
@@ -662,231 +236,36 @@
         border: 1px solid #fecaca;
     }
     
+    .alert-error svg {
+        color: #dc2626;
+    }
+    
     .alert-success {
         background: #dcfce7;
-        color: #166534;
+        color: #14532d;
         border: 1px solid #bbf7d0;
     }
     
-    .services-list {
-        margin-bottom: 24px;
+    .alert-success svg {
+        color: #16a34a;
     }
     
-    .services-list h3 {
-        font-size: 16px;
-        font-weight: 600;
-        color: #111827;
-        margin: 0 0 12px 0;
+    /* Custom scrollbar for settings panel */
+    .settings-panel::-webkit-scrollbar {
+        width: 8px;
     }
     
-    .service-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px;
-        background: #f9fafb;
-        border-radius: 6px;
-        margin-bottom: 8px;
-    }
-    
-    .service-info {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    
-    .service-info strong {
-        font-size: 14px;
-        color: #111827;
-    }
-    
-    .service-id {
-        font-size: 12px;
-        color: #6b7280;
-        font-family: monospace;
-    }
-    
-    .file-input {
-        width: 100%;
-        padding: 8px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        margin-bottom: 8px;
-    }
-    
-    .help-text {
-        font-size: 12px;
-        color: #6b7280;
-        margin: 4px 0 0 0;
-    }
-    
-    .settings-section {
-        padding: 20px;
-        border-bottom: 1px solid #e5e7eb;
-    }
-    
-    .settings-section:last-child {
-        border-bottom: none;
-    }
-    
-    .settings-section h3 {
-        font-size: 14px;
-        font-weight: 600;
-        color: #111827;
-        margin: 0 0 8px 0;
-    }
-
-    .api-key-controls {
-        display: flex;
-        gap: 12px;
-        align-items: flex-start;
-        flex-direction: column;
-    }
-    
-    .settings-input {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-    }
-    
-    .toggle-setting {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    
-    .setting-description {
-        font-size: 12px;
-        color: #6b7280;
-        margin: 4px 0 0 0;
-    }
-    
-    .toggle-button {
-        position: relative;
-        width: 48px;
-        height: 24px;
-        background: #d1d5db;
-        border: none;
-        border-radius: 12px;
-        cursor: pointer;
-        transition: background 0.2s;
-    }
-    
-    .toggle-button.active {
-        background: #3b82f6;
-    }
-    
-    .toggle-slider {
-        position: absolute;
-        top: 2px;
-        left: 2px;
-        width: 20px;
-        height: 20px;
-        background: white;
-        border-radius: 50%;
-        transition: transform 0.2s;
-    }
-    
-    .toggle-button.active .toggle-slider {
-        transform: translateX(24px);
-    }
-    
-    .notification-settings {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid #e5e7eb;
-    }
-    
-    .sound-selector {
-        margin-bottom: 20px;
-    }
-    
-    .sound-selector label {
-        display: block;
-        font-size: 13px;
-        font-weight: 500;
-        color: #374151;
-        margin-bottom: 8px;
-    }
-    
-    .sound-controls {
-        display: flex;
-        gap: 8px;
-    }
-    
-    .sound-dropdown {
-        flex: 1;
-        padding: 8px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        background: white;
-        cursor: pointer;
-        appearance: none;
-        background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-        background-repeat: no-repeat;
-        background-position: right 8px center;
-        background-size: 20px;
-        padding-right: 36px;
-    }
-    
-    .sound-dropdown:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .btn-test {
-        padding: 8px 16px;
+    .settings-panel::-webkit-scrollbar-track {
         background: #f3f4f6;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
+        border-radius: 0 8px 8px 0;
     }
     
-    .btn-test:hover {
-        background: #e5e7eb;
+    .settings-panel::-webkit-scrollbar-thumb {
+        background: #d1d5db;
+        border-radius: 4px;
     }
     
-    .snooze-controls {
-        margin-top: 16px;
-    }
-    
-    .btn-snooze {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 16px;
-        background: white;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-        width: 100%;
-    }
-    
-    .btn-snooze:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-    
-    .btn-snooze.snoozed {
-        background: #fef3c7;
-        border-color: #fbbf24;
-        color: #92400e;
-    }
-    
-    .snooze-description {
-        font-size: 12px;
-        color: #6b7280;
-        margin: 8px 0 0 0;
+    .settings-panel::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af;
     }
 </style>
