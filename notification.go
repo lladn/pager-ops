@@ -32,7 +32,8 @@ type NotificationManager struct {
 
 type SoundPlayer struct {
 	initialized bool
-	initMu      sync.Mutex // Protect the initialization state
+	initMu      sync.Mutex     // Protect the initialization state
+	speakerMu   sync.Mutex     // Protect ALL speaker operations
 	initOnce    sync.Once
 	initErr     error
 }
@@ -199,30 +200,46 @@ func (nm *NotificationManager) playCustomSound(soundFile string) {
 	}
 	defer stream.Close()
 
-	// Proper synchronization for speaker initialization
+	// Synchronize ALL speaker operations to prevent race conditions
+	// Lock the speaker mutex for the entire initialization and playback sequence
+	nm.soundPlayer.speakerMu.Lock()
+	defer nm.soundPlayer.speakerMu.Unlock()
+
+	// Check if already initialized inside the speaker lock
 	nm.soundPlayer.initMu.Lock()
-	if !nm.soundPlayer.initialized {
+	needsInit := !nm.soundPlayer.initialized
+	nm.soundPlayer.initMu.Unlock()
+
+	if needsInit {
+		// Initialize speaker only once, but within the speaker lock
 		nm.soundPlayer.initOnce.Do(func() {
 			nm.soundPlayer.initErr = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 			if nm.soundPlayer.initErr == nil {
+				nm.soundPlayer.initMu.Lock()
 				nm.soundPlayer.initialized = true
+				nm.soundPlayer.initMu.Unlock()
 				nm.logger.Info("Speaker initialized successfully")
 			}
 		})
 
 		if nm.soundPlayer.initErr != nil {
-			nm.soundPlayer.initMu.Unlock()
 			nm.logger.Error(fmt.Sprintf("Failed to initialize speaker: %v", nm.soundPlayer.initErr))
 			return
 		}
 	}
-	nm.soundPlayer.initMu.Unlock()
 
-	// Play the sound
-	done := make(chan bool)
+	// Play the sound (still within speaker lock to prevent concurrent access)
+	done := make(chan bool, 1) // Buffered channel to prevent goroutine leak
 	speaker.Play(beep.Seq(stream, beep.Callback(func() {
-		done <- true
+		select {
+		case done <- true:
+		default:
+			// Channel was already closed or full, ignore
+		}
 	})))
+
+	// Release the speaker lock before waiting for completion
+	nm.soundPlayer.speakerMu.Unlock()
 
 	// Wait for playback to complete (with timeout)
 	select {
@@ -232,6 +249,9 @@ func (nm *NotificationManager) playCustomSound(soundFile string) {
 		// Timeout after 10 seconds
 		nm.logger.Warn("Sound playback timeout")
 	}
+	
+	// Re-acquire lock before function returns (deferred unlock will release it)
+	nm.soundPlayer.speakerMu.Lock()
 }
 
 func (nm *NotificationManager) GetAvailableSounds() ([]string, error) {
@@ -273,6 +293,7 @@ func (nm *NotificationManager) TestSound() error {
 	sound := nm.config.Sound
 	nm.mu.RUnlock()
 
+	// Serialize test sound calls to prevent concurrent speaker access
 	if sound == "default" {
 		nm.playDefaultSound("Hello There")
 	} else {
