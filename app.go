@@ -238,7 +238,9 @@ func NewApp() *App {
 	}
 }
 
-func (a *App) startup(ctx context.Context) {
+func (a *App) startup(
+	ctx context.Context,
+) {
 	a.ctx = ctx
 
 	// Initialize logger
@@ -337,7 +339,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-func (a *App) SetFilterByUser(enabled bool) {
+func (a *App) SetFilterByUser(
+	enabled bool,
+) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.filterByUser = enabled
@@ -368,7 +372,10 @@ func (a *App) fetchAndUpdateIncidents() {
 	}
 }
 
-func (a *App) processAndUpdateIncidents(incidents []database.IncidentData, source string) {
+func (a *App) processAndUpdateIncidents(
+	incidents []database.IncidentData,
+	source string,
+) {
 	// Check shutdown before database operations
 	select {
 	case <-a.shutdownChan:
@@ -515,6 +522,9 @@ func (a *App) StartPolling() {
 	a.pollTicker = time.NewTicker(3 * time.Second)
 	a.logger.Info("Started service incidents polling (3s interval)")
 
+	// Store ticker channel reference while holding lock
+	tickerChan := a.pollTicker.C
+	
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -527,13 +537,14 @@ func (a *App) StartPolling() {
 			case <-a.shutdownChan:
 				a.logger.Info("Service incidents polling stopped by shutdown signal")
 				return
-			case <-a.pollTicker.C:
+			case <-tickerChan:
 				// Check polling state with lock
 				a.pollMu.RLock()
 				shouldContinue := a.polling
+				currentTicker := a.pollTicker
 				a.pollMu.RUnlock()
 
-				if !shouldContinue {
+				if !shouldContinue || currentTicker == nil {
 					return
 				}
 
@@ -562,6 +573,9 @@ func (a *App) StartUserPolling() {
 	a.userPollTicker = time.NewTicker(6 * time.Second)
 	a.logger.Info("Started user incidents polling (6s interval)")
 
+	// Store ticker channel reference while holding lock
+	tickerChan := a.userPollTicker.C
+	
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -580,13 +594,14 @@ func (a *App) StartUserPolling() {
 			case <-a.shutdownChan:
 				a.logger.Info("User incidents polling stopped by shutdown signal")
 				return
-			case <-a.userPollTicker.C:
+			case <-tickerChan:
 				// Check polling state with lock
 				a.userPollMu.RLock()
 				shouldContinue := a.userPolling
+				currentTicker := a.userPollTicker
 				a.userPollMu.RUnlock()
 
-				if !shouldContinue {
+				if !shouldContinue || currentTicker == nil {
 					return
 				}
 
@@ -649,6 +664,9 @@ func (a *App) StartResolvedPolling() {
 	a.resolvedPollTicker = time.NewTicker(1 * time.Minute) // Changed from 10 minutes to 1 minute
 	a.logger.Info("Started resolved incidents polling (1m interval)")
 
+	// Store ticker channel reference while holding lock
+	tickerChan := a.resolvedPollTicker.C
+	
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -661,12 +679,13 @@ func (a *App) StartResolvedPolling() {
 			case <-a.shutdownChan:
 				a.logger.Info("Resolved incidents polling stopped by shutdown signal")
 				return
-			case <-a.resolvedPollTicker.C:
+			case <-tickerChan:
 				a.resolvedPollMu.RLock()
 				shouldContinue := a.resolvedPolling
+				currentTicker := a.resolvedPollTicker
 				a.resolvedPollMu.RUnlock()
 
-				if !shouldContinue {
+				if !shouldContinue || currentTicker == nil {
 					return
 				}
 
@@ -1065,70 +1084,6 @@ func (a *App) performInitialResolvedFetch() {
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 }
 
-func (a *App) fetchRecentResolvedIncidents() {
-	if a.client == nil {
-		return
-	}
-
-	// Prevent concurrent resolved fetches
-	if !a.resolvedFetchMu.TryLock() {
-		a.logger.Debug("Skipping recent resolved fetch - another fetch in progress")
-		return
-	}
-	defer a.resolvedFetchMu.Unlock()
-
-	// Prevent duplicate fetches within 5 seconds
-	a.lastResolvedFetchMu.RLock()
-	lastFetch := a.lastResolvedFetch
-	a.lastResolvedFetchMu.RUnlock()
-	
-	if time.Since(lastFetch) < 5*time.Second {
-		a.logger.Debug("Skipping recent resolved fetch - too soon since last fetch")
-		return
-	}
-
-	a.mu.RLock()
-	selectedServices := append([]string{}, a.selectedServices...)
-	a.mu.RUnlock()
-
-	if len(selectedServices) == 0 {
-		return
-	}
-
-	// Update last fetch time
-	a.lastResolvedFetchMu.Lock()
-	a.lastResolvedFetch = time.Now()
-	a.lastResolvedFetchMu.Unlock()
-
-	// Fetch resolved incidents from last hour for immediate updates
-	opts := store.FetchOptions{
-		ServiceIDs: selectedServices,
-		Statuses:   []string{"resolved"},
-		Since:      time.Now().Add(-1 * time.Hour),
-	}
-
-	// Use FetchIncidentsWithPagination instead of FetchIncidentsWithOptions
-	incidents, err := a.client.FetchIncidentsWithPagination(opts, 50)
-	if err != nil {
-		a.logger.Warn(fmt.Sprintf("Failed to fetch recent resolved: %v", err))
-		return
-	}
-
-	// Update database
-	updateCount := 0
-	for _, incident := range incidents {
-		if err := a.db.UpsertIncident(incident); err != nil {
-			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
-		} else {
-			updateCount++
-		}
-	}
-
-	if updateCount > 0 {
-		runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
-		a.logger.Info(fmt.Sprintf("Immediate resolved update: %d incidents", updateCount))
-	}
-}
 
 func (a *App) fetchWithRetry(
 	fn func() ([]database.IncidentData, error),
@@ -1198,7 +1153,10 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	return filteredIncidents, nil
 }
 
-func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData, error) {
+func (a *App) GetResolvedIncidents(
+	serviceIDs []string) (
+	[]database.IncidentData, error,
+) {
 	if a.client == nil {
 		err := fmt.Errorf("PagerDuty client not initialized")
 		a.logger.Warn(err.Error())
@@ -1254,7 +1212,8 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 }
 
 // to fetch user on startup
-func (a *App) ConfigureAPIKey(apiKey string) error {
+func (a *App) ConfigureAPIKey(
+	apiKey string) error {
 	if apiKey == "" {
 		return fmt.Errorf("API key cannot be empty")
 	}
@@ -1320,7 +1279,9 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 	return nil
 }
 
-func (a *App) GetAPIKey() (string, error) {
+func (a *App) GetAPIKey() (
+	string, error,
+) {
 	if a.kr == nil {
 		return "", fmt.Errorf("keyring not available")
 	}
@@ -1333,7 +1294,8 @@ func (a *App) GetAPIKey() (string, error) {
 	return string(item.Data), nil
 }
 
-func (a *App) UploadServicesConfig(jsonData string) error {
+func (a *App) UploadServicesConfig(
+	jsonData string) error {
 	var config store.ServicesConfig
 	if err := json.Unmarshal([]byte(jsonData), &config); err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to parse services config: %v", err))
@@ -1393,7 +1355,9 @@ func (a *App) RemoveServicesConfig() error {
 	return nil
 }
 
-func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
+func (a *App) GetServicesConfig() (
+	*store.ServicesConfig, error,
+) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -1403,7 +1367,9 @@ func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
 	return a.servicesConfig, nil
 }
 
-func (a *App) SetSelectedServices(services []string) {
+func (a *App) SetSelectedServices(
+	services []string,
+) {
 	a.mu.Lock()
 	oldServices := a.selectedServices
 	a.selectedServices = services
@@ -1431,7 +1397,10 @@ func (a *App) GetSelectedServices() []string {
 	return append([]string{}, a.selectedServices...)
 }
 
-func (a *App) ReadFile(path string) (string, error) {
+func (a *App) ReadFile(
+	path string) (
+	string, error,
+) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to read file %s: %v", path, err))
@@ -1521,13 +1490,13 @@ func (a *App) IsNotificationSnoozed() bool {
 func (a *App) shutdown(ctx context.Context) {
 	a.logger.Info("Shutting down PagerOps...")
 
-	// Signal shutdown
-	close(a.shutdownChan)
-
-	// Stop all polling
+	// First, stop all polling to prevent new operations
 	a.StopPolling()
 	a.StopUserPolling()
 	a.StopResolvedPolling()
+
+	// Then signal shutdown to running goroutines
+	close(a.shutdownChan)
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})

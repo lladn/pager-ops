@@ -30,6 +30,7 @@
         height: 38px;
         -webkit-app-region: drag;
         --wails-draggable: drag;
+        cursor: default;
     }
     
     .toolbar-content {
