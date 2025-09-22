@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -47,13 +46,12 @@ type App struct {
 	previousOpenMu        sync.RWMutex
 	shutdownChan          chan struct{}
 	shutdownWg            sync.WaitGroup
-	// NEW FIELDS for user polling
 	userPolling    bool
 	userPollTicker *time.Ticker
 	userPollMu     sync.RWMutex
-	// NEW FIELDS for resolved date tracking
 	latestResolvedDate time.Time
 	latestResolvedMu   sync.RWMutex
+	resolvedFetchMu sync.Mutex
 }
 
 // RateLimitTracker
@@ -78,6 +76,8 @@ type CircuitBreaker struct {
 	state          int32 // 0: closed, 1: open, 2: half-open
 	maxFailures    int32
 	cooldownPeriod time.Duration
+	backoffMultiplier float64
+	currentBackoff    time.Duration
 	mu             sync.RWMutex
 }
 
@@ -97,8 +97,10 @@ func NewUserCache() *UserCache {
 
 func NewCircuitBreaker() *CircuitBreaker {
 	return &CircuitBreaker{
-		maxFailures:    5,
-		cooldownPeriod: 30 * time.Second,
+		maxFailures:       5,
+		cooldownPeriod:    30 * time.Second,
+		backoffMultiplier: 2.0,
+		currentBackoff:    30 * time.Second,
 	}
 }
 
@@ -154,10 +156,12 @@ func (cb *CircuitBreaker) Allow() bool {
 	if state == 1 { // Open
 		cb.mu.RLock()
 		lastFailure := cb.lastFailure
+		currentBackoff := cb.currentBackoff
 		cb.mu.RUnlock()
 
-		if time.Since(lastFailure) > cb.cooldownPeriod {
-			atomic.StoreInt32(&cb.state, 2) // Half-open
+		if time.Since(lastFailure) > currentBackoff {
+			// Try half-open state
+			atomic.StoreInt32(&cb.state, 2)
 			return true
 		}
 		return false
@@ -169,6 +173,11 @@ func (cb *CircuitBreaker) Allow() bool {
 func (cb *CircuitBreaker) RecordSuccess() {
 	atomic.StoreInt32(&cb.failures, 0)
 	atomic.StoreInt32(&cb.state, 0) // Closed
+	
+	// Reset backoff on success
+	cb.mu.Lock()
+	cb.currentBackoff = cb.cooldownPeriod
+	cb.mu.Unlock()
 }
 
 func (cb *CircuitBreaker) RecordFailure() {
@@ -176,11 +185,18 @@ func (cb *CircuitBreaker) RecordFailure() {
 
 	cb.mu.Lock()
 	cb.lastFailure = time.Now()
-	cb.mu.Unlock()
-
+	
+	// Exponential backoff: double the backoff period on each failure
 	if failures >= cb.maxFailures {
 		atomic.StoreInt32(&cb.state, 1) // Open
+		
+		// Increase backoff exponentially, cap at 5 minutes
+		cb.currentBackoff = time.Duration(float64(cb.currentBackoff) * cb.backoffMultiplier)
+		if cb.currentBackoff > 5*time.Minute {
+			cb.currentBackoff = 5 * time.Minute
+		}
 	}
+	cb.mu.Unlock()
 }
 
 func (uc *UserCache) Get() (string, bool) {
@@ -287,6 +303,7 @@ func (a *App) startup(ctx context.Context) {
 	a.userCache = NewUserCache()
 	a.circuitBreaker = NewCircuitBreaker()
 
+	// In the startup method, modify the section where API key is loaded:
 	// Try to load API key and initialize client
 	apiKey, err := a.GetAPIKey()
 	if err == nil && apiKey != "" {
@@ -294,6 +311,15 @@ func (a *App) startup(ctx context.Context) {
 		if err == nil {
 			a.client = client
 			a.logger.Info("PagerDuty client initialized successfully")
+
+			// Fetch and cache user ID on startup
+			if user, err := client.GetCurrentUser(); err == nil {
+				if a.userCache == nil {
+					a.userCache = NewUserCache()
+				}
+				a.userCache.Set(user.ID, user)
+				a.logger.Info(fmt.Sprintf("Cached user ID on startup: %s", user.ID))
+			}
 
 			// Set default filter to true (show only assigned)
 			a.filterByUser = true
@@ -413,11 +439,7 @@ func (a *App) processAndUpdateIncidents(incidents []database.IncidentData, sourc
 
 	// If transitions detected, trigger lightweight resolved fetch
 	if hasTransitions {
-		a.shutdownWg.Add(1)
-		go func() {
-			defer a.shutdownWg.Done()
-			a.fetchRecentResolvedIncidents()
-		}()
+		a.logger.Info(fmt.Sprintf("[%s] Transitions detected, resolved polling will update", source))
 	}
 
 	a.previousOpenMu.Lock()
@@ -481,7 +503,6 @@ func (a *App) checkForTriggeredIncidents() {
 	}
 }
 
-
 func (a *App) StartPolling() {
 	a.pollMu.Lock()
 	defer a.pollMu.Unlock()
@@ -497,7 +518,7 @@ func (a *App) StartPolling() {
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
-		
+
 		// Initial fetch immediately
 		a.fetchServiceIncidents()
 
@@ -544,12 +565,12 @@ func (a *App) StartUserPolling() {
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
-		
+
 		// Initial fetch immediately if filter is enabled
 		a.mu.RLock()
 		shouldFetch := a.filterByUser
 		a.mu.RUnlock()
-		
+
 		if shouldFetch {
 			a.fetchUserIncidents()
 		}
@@ -631,7 +652,7 @@ func (a *App) StartResolvedPolling() {
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
-		
+
 		// Initial fetch using new method
 		a.fetchResolvedIncidentsSince()
 
@@ -742,7 +763,7 @@ func (a *App) fetchUserIncidents() {
 	// Get or refresh user ID with caching
 	cachedID, valid := a.userCache.Get()
 	var userID string
-	
+
 	if valid {
 		userID = cachedID
 	} else {
@@ -784,6 +805,13 @@ func (a *App) fetchResolvedIncidentsSince() {
 		return
 	}
 
+	// Prevent concurrent resolved fetches
+	if !a.resolvedFetchMu.TryLock() {
+		a.logger.Debug("Skipping resolved fetch - another fetch in progress")
+		return
+	}
+	defer a.resolvedFetchMu.Unlock()
+
 	// Check if shutdown is in progress
 	select {
 	case <-a.shutdownChan:
@@ -799,7 +827,7 @@ func (a *App) fetchResolvedIncidentsSince() {
 		return
 	}
 
-	// Get the latest resolved date with read lock
+	// Get the latest resolved date
 	a.latestResolvedMu.RLock()
 	since := a.latestResolvedDate
 	a.latestResolvedMu.RUnlock()
@@ -822,8 +850,8 @@ func (a *App) fetchResolvedIncidentsSince() {
 		Until:      now,
 	}
 
-	// Use paginated fetch for resolved incidents
-	incidents, err := a.client.FetchIncidentsWithPagination(resolvedOpts, 100)
+	// Use paginated fetch with smaller page size to reduce timeout risk
+	incidents, err := a.client.FetchIncidentsWithPagination(resolvedOpts, 50)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 		a.circuitBreaker.RecordFailure()
@@ -841,6 +869,7 @@ func (a *App) fetchResolvedIncidentsSince() {
 
 	// Update database and track latest date
 	var latestDate time.Time
+	updateCount := 0
 	for _, incident := range incidents {
 		if err := a.db.UpsertIncident(incident); err != nil {
 			if err.Error() == "sql: database is closed" {
@@ -848,71 +877,28 @@ func (a *App) fetchResolvedIncidentsSince() {
 				return
 			}
 			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
-		}
-
-		// Track the latest resolved date
-		if incident.UpdatedAt.After(latestDate) {
-			latestDate = incident.UpdatedAt
+		} else {
+			updateCount++
+			if incident.UpdatedAt.After(latestDate) {
+				latestDate = incident.UpdatedAt
+			}
 		}
 	}
 
-	// Update latest resolved date if we found newer incidents
-	if !latestDate.IsZero() && latestDate.After(since) {
+	// Update latest resolved date if newer
+	if !latestDate.IsZero() {
 		a.latestResolvedMu.Lock()
-		a.latestResolvedDate = latestDate
-		a.latestResolvedMu.Unlock()
-
-		// Persist to database
-		if err := a.db.SetState("latest_resolved_date", latestDate.Format(time.RFC3339)); err != nil {
-			if err.Error() != "sql: database is closed" {
+		if latestDate.After(a.latestResolvedDate) {
+			a.latestResolvedDate = latestDate
+			// Persist to database
+			if err := a.db.SetState("latest_resolved_date", latestDate.Format(time.RFC3339)); err != nil {
 				a.logger.Warn(fmt.Sprintf("Failed to persist latest resolved date: %v", err))
 			}
 		}
-		a.logger.Info(fmt.Sprintf("Updated latest resolved date to: %s", latestDate.Format(time.RFC3339)))
+		a.latestResolvedMu.Unlock()
 	}
 
-	if len(incidents) > 0 {
-		runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
-		a.logger.Info(fmt.Sprintf("Processed %d resolved incidents", len(incidents)))
-	}
-}
-
-
-// fetchResolvedIncidents - Original method preserved for compatibility
-func (a *App) fetchResolvedIncidents() {
-	if a.client == nil {
-		return
-	}
-
-	a.mu.RLock()
-	selectedServices := a.selectedServices
-	a.mu.RUnlock()
-
-	if len(selectedServices) == 0 {
-		return
-	}
-
-	// Fetch resolved incidents from last 48 hours
-	resolvedOpts := store.FetchOptions{
-		ServiceIDs: selectedServices,
-		Statuses:   []string{"resolved"},
-		Since:      time.Now().Add(-48 * time.Hour),
-	}
-
-	incidents, err := a.client.FetchIncidentsWithOptions(resolvedOpts)
-	if err != nil {
-		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
-		return
-	}
-
-	// Update database
-	for _, incident := range incidents {
-		if err := a.db.UpsertIncident(incident); err != nil {
-			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
-		}
-	}
-
-	// Emit event to update UI
+	a.logger.Info(fmt.Sprintf("Resolved incidents update: fetched=%d, updated=%d", len(incidents), updateCount))
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 }
 
@@ -1012,6 +998,10 @@ func (a *App) performInitialResolvedFetch() {
 		return
 	}
 
+	// Use the resolved fetch mutex to prevent concurrent fetches
+	a.resolvedFetchMu.Lock()
+	defer a.resolvedFetchMu.Unlock()
+
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
 	a.mu.RUnlock()
@@ -1020,32 +1010,16 @@ func (a *App) performInitialResolvedFetch() {
 		return
 	}
 
-	// Query database for the newest resolved incident date
-	var since time.Time
-	newestResolved, err := a.db.GetNewestResolvedIncidentDate()
-	if err == nil && !newestResolved.IsZero() {
-		// Use the newest date from database, or 3 days ago, whichever is more recent
-		threeDaysAgo := time.Now().Add(-72 * time.Hour)
-		if newestResolved.After(threeDaysAgo) {
-			since = newestResolved
-			a.logger.Info(fmt.Sprintf("Using database newest resolved date: %s", since.Format(time.RFC3339)))
-		} else {
-			since = threeDaysAgo
-			a.logger.Info("Database date too old, using 3 days ago")
-		}
-	} else {
-		// No resolved incidents in database, fetch last 3 days
-		since = time.Now().Add(-72 * time.Hour)
-		a.logger.Info("No resolved incidents in database, fetching last 3 days")
-	}
+	// Start with 3 days ago
+	since := time.Now().Add(-72 * time.Hour)
+	until := time.Now()
+	
+	a.logger.Info(fmt.Sprintf("Performing initial resolved incidents fetch from %s", since.Format(time.RFC3339)))
 
 	// Update the latest resolved date
 	a.latestResolvedMu.Lock()
 	a.latestResolvedDate = since
 	a.latestResolvedMu.Unlock()
-
-	until := time.Now()
-	a.logger.Info(fmt.Sprintf("Performing initial resolved incidents fetch from %s", since.Format(time.RFC3339)))
 
 	opts := store.FetchOptions{
 		ServiceIDs: selectedServices,
@@ -1054,26 +1028,28 @@ func (a *App) performInitialResolvedFetch() {
 		Until:      until,
 	}
 
-	// Use paginated fetch
-	incidents, err := a.client.FetchIncidentsWithPagination(opts, 100)
+	// Use smaller page size for initial fetch
+	incidents, err := a.client.FetchIncidentsWithPagination(opts, 50)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Initial resolved fetch failed: %v", err))
 		return
 	}
 
-	// Batch update database
-	if err := a.db.BatchUpsertIncidents(incidents); err != nil {
-		a.logger.Error(fmt.Sprintf("Failed to batch upsert incidents: %v", err))
-	}
-
-	// Update latest resolved date
+	// Update database
+	updateCount := 0
 	var latestDate time.Time
 	for _, incident := range incidents {
-		if incident.UpdatedAt.After(latestDate) {
-			latestDate = incident.UpdatedAt
+		if err := a.db.UpsertIncident(incident); err != nil {
+			a.logger.Error(fmt.Sprintf("Failed to upsert incident: %v", err))
+		} else {
+			updateCount++
+			if incident.UpdatedAt.After(latestDate) {
+				latestDate = incident.UpdatedAt
+			}
 		}
 	}
 
+	// Update latest resolved date
 	if !latestDate.IsZero() {
 		a.latestResolvedMu.Lock()
 		a.latestResolvedDate = latestDate
@@ -1085,15 +1061,21 @@ func (a *App) performInitialResolvedFetch() {
 		}
 	}
 
-	a.logger.Info(fmt.Sprintf("Initial fetch complete: %d resolved incidents", len(incidents)))
+	a.logger.Info(fmt.Sprintf("Initial fetch complete: fetched=%d, updated=%d resolved incidents", len(incidents), updateCount))
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 }
 
-
 func (a *App) fetchRecentResolvedIncidents() {
-	if a.client == nil || !a.rateLimitTracker.CanMakeCall() {
+	if a.client == nil {
 		return
 	}
+
+	// Prevent concurrent resolved fetches
+	if !a.resolvedFetchMu.TryLock() {
+		a.logger.Debug("Skipping recent resolved fetch - another fetch in progress")
+		return
+	}
+	defer a.resolvedFetchMu.Unlock()
 
 	// Prevent duplicate fetches within 5 seconds
 	a.lastResolvedFetchMu.RLock()
@@ -1125,65 +1107,35 @@ func (a *App) fetchRecentResolvedIncidents() {
 		Since:      time.Now().Add(-1 * time.Hour),
 	}
 
-	incidents, err := a.client.FetchIncidentsWithOptions(opts)
+	// Use FetchIncidentsWithPagination instead of FetchIncidentsWithOptions
+	incidents, err := a.client.FetchIncidentsWithPagination(opts, 50)
 	if err != nil {
 		a.logger.Warn(fmt.Sprintf("Failed to fetch recent resolved: %v", err))
 		return
 	}
 
-	// Update database and track latest date
-	var latestDate time.Time
+	// Update database
+	updateCount := 0
 	for _, incident := range incidents {
 		if err := a.db.UpsertIncident(incident); err != nil {
 			a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
-		}
-		if incident.UpdatedAt.After(latestDate) {
-			latestDate = incident.UpdatedAt
+		} else {
+			updateCount++
 		}
 	}
 
-	// Update latest resolved date if newer
-	if !latestDate.IsZero() {
-		a.latestResolvedMu.Lock()
-		if latestDate.After(a.latestResolvedDate) {
-			a.latestResolvedDate = latestDate
-			// Persist to database
-			if err := a.db.SetState("latest_resolved_date", latestDate.Format(time.RFC3339)); err != nil {
-				a.logger.Warn(fmt.Sprintf("Failed to persist latest resolved date: %v", err))
-			}
-		}
-		a.latestResolvedMu.Unlock()
+	if updateCount > 0 {
+		runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
+		a.logger.Info(fmt.Sprintf("Immediate resolved update: %d incidents", updateCount))
 	}
-
-	a.rateLimitTracker.RecordCall()
-	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
-	a.logger.Info(fmt.Sprintf("Immediate resolved update: %d incidents", len(incidents)))
 }
 
 func (a *App) fetchWithRetry(
 	fn func() ([]database.IncidentData, error),
-	maxRetries int,
+	maxRetries int, // parameter kept for compatibility but ignored
 ) ([]database.IncidentData, error) {
-	var lastErr error
-
-	for i := 0; i < maxRetries; i++ {
-		if i > 0 {
-			// Exponential backoff: 2^i seconds
-			backoff := time.Duration(math.Pow(2, float64(i))) * time.Second
-			a.logger.Info(fmt.Sprintf("Retry %d/%d after %v", i, maxRetries, backoff))
-			time.Sleep(backoff)
-		}
-
-		result, err := fn()
-		if err == nil {
-			return result, nil
-		}
-
-		lastErr = err
-		a.logger.Warn(fmt.Sprintf("Attempt %d failed: %v", i+1, err))
-	}
-
-	return nil, fmt.Errorf("all retries exhausted: %w", lastErr)
+	// No retries - the polling mechanism handles automatic retries
+	return fn()
 }
 
 func (a *App) refreshUserCache() {
@@ -1200,7 +1152,6 @@ func (a *App) refreshUserCache() {
 	a.userCache.Set(user.ID, user)
 	a.logger.Debug("User cache refreshed successfully")
 }
-
 
 func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, error) {
 	if a.db == nil {
@@ -1247,7 +1198,6 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	return filteredIncidents, nil
 }
 
-
 func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData, error) {
 	if a.client == nil {
 		err := fmt.Errorf("PagerDuty client not initialized")
@@ -1264,67 +1214,29 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 	// Check if we have cached resolved incidents for these services
 	cachedIncidents, err := a.db.GetResolvedIncidentsByServices(serviceIDs)
 	if err == nil && len(cachedIncidents) > 0 {
-		// Return cached data immediately for faster load
-		a.shutdownWg.Add(1)
-		go func() {
-			defer a.shutdownWg.Done()
-			
-			// Check shutdown
-			select {
-			case <-a.shutdownChan:
-				return
-			default:
-			}
-			
-			// Check rate limit
-			if !a.rateLimitTracker.CanMakeCall() {
-				return
-			}
-
-			// Fetch fresh data in background WITH PAGINATION for resolved
-			opts := store.FetchOptions{
-				ServiceIDs: serviceIDs,
-				Statuses:   []string{"resolved"},
-				Since:      time.Now().Add(-48 * time.Hour),
-			}
-			
-			incidents, err := a.client.FetchIncidentsWithPagination(opts, 100)
-			if err != nil {
-				a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
-				return
-			}
-			
-			// Check shutdown before database operations
-			select {
-			case <-a.shutdownChan:
-				return
-			default:
-			}
-			
-			// Update database
-			for _, incident := range incidents {
-				if err := a.db.UpsertIncident(incident); err != nil {
-					if err.Error() != "sql: database is closed" {
-						a.logger.Error(fmt.Sprintf("Failed to upsert resolved incident: %v", err))
-					}
-				}
-			}
-
-			a.rateLimitTracker.RecordCall()
-			// Emit event to update UI
-			runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
-		}()
+		// Return cached data immediately WITHOUT spawning background fetch
+		// The regular polling will keep data updated
 		return cachedIncidents, nil
 	}
 
-	// No cache, fetch from PagerDuty WITH PAGINATION
+	// No cache, fetch synchronously with proper mutex to prevent concurrent fetches
+	a.resolvedFetchMu.Lock()
+	defer a.resolvedFetchMu.Unlock()
+
+	// Check again after acquiring lock (double-check pattern)
+	cachedIncidents, err = a.db.GetResolvedIncidentsByServices(serviceIDs)
+	if err == nil && len(cachedIncidents) > 0 {
+		return cachedIncidents, nil
+	}
+
+	// Fetch from PagerDuty with proper timeout
 	opts := store.FetchOptions{
 		ServiceIDs: serviceIDs,
 		Statuses:   []string{"resolved"},
 		Since:      time.Now().Add(-48 * time.Hour),
 	}
 	
-	incidents, err := a.client.FetchIncidentsWithPagination(opts, 100)
+	incidents, err := a.client.FetchIncidentsWithPagination(opts, 50)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
 		return nil, fmt.Errorf("failed to fetch resolved incidents: %w", err)
@@ -1341,22 +1253,28 @@ func (a *App) GetResolvedIncidents(serviceIDs []string) ([]database.IncidentData
 	return a.db.GetResolvedIncidentsByServices(serviceIDs)
 }
 
-
-// ConfigureAPIKey - Original method unchanged
+// to fetch user on startup
 func (a *App) ConfigureAPIKey(apiKey string) error {
 	if apiKey == "" {
 		return fmt.Errorf("API key cannot be empty")
 	}
 
-	// Initialize PagerDuty client
+	// Initialize PagerDuty client with queue
 	client, err := store.NewClient(apiKey)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to create PagerDuty client: %v", err))
 		return fmt.Errorf("failed to create PagerDuty client: %w", err)
 	}
 
-	// Test the API key by getting current user
-	_, err = client.GetCurrentUser()
+	// Set custom logger for the client
+	if a.logger != nil {
+		client.SetLogger(func(msg string) {
+			a.logger.Info(msg)
+		})
+	}
+
+	// Test the API key by getting current user and cache the user ID
+	user, err := client.GetCurrentUser()
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to validate API key: %v", err))
 		return fmt.Errorf("invalid API key: %w", err)
@@ -1369,7 +1287,6 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 			Data: []byte(apiKey),
 		}); err != nil {
 			a.logger.Warn(fmt.Sprintf("Failed to save API key to keyring: %v", err))
-			// Continue even if keyring save fails
 		}
 	}
 
@@ -1377,15 +1294,22 @@ func (a *App) ConfigureAPIKey(apiKey string) error {
 	a.client = client
 	a.logger.Info("API key configured successfully")
 
-	// Initialize new components if not already done
+	// Initialize components if not already done
 	if a.userCache == nil {
 		a.userCache = NewUserCache()
 	}
 	if a.circuitBreaker == nil {
 		a.circuitBreaker = NewCircuitBreaker()
 	}
+	if a.rateLimitTracker == nil {
+		a.rateLimitTracker = NewRateLimitTracker()
+	}
 
-	// Start all three polling cycles
+	// Cache the user ID immediately
+	a.userCache.Set(user.ID, user)
+	a.logger.Info(fmt.Sprintf("Cached user ID: %s", user.ID))
+
+	// Start polling cycles
 	a.StartPolling()
 	a.StartUserPolling()
 	a.StartResolvedPolling()
@@ -1469,7 +1393,6 @@ func (a *App) RemoveServicesConfig() error {
 	return nil
 }
 
-
 func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -1479,7 +1402,6 @@ func (a *App) GetServicesConfig() (*store.ServicesConfig, error) {
 	}
 	return a.servicesConfig, nil
 }
-
 
 func (a *App) SetSelectedServices(services []string) {
 	a.mu.Lock()
@@ -1502,14 +1424,12 @@ func (a *App) SetSelectedServices(services []string) {
 	}
 }
 
-
 func (a *App) GetSelectedServices() []string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
 	return append([]string{}, a.selectedServices...)
 }
-
 
 func (a *App) ReadFile(path string) (string, error) {
 	content, err := os.ReadFile(path)
@@ -1519,7 +1439,6 @@ func (a *App) ReadFile(path string) (string, error) {
 	}
 	return string(content), nil
 }
-
 
 func (a *App) GetRateLimitStatus() map[string]interface{} {
 	currentRate := a.rateLimitTracker.GetCurrentRate()
@@ -1540,7 +1459,6 @@ func (a *App) GetRateLimitStatus() map[string]interface{} {
 	return status
 }
 
-
 func (a *App) GetNotificationConfig() NotificationConfig {
 	if a.notificationMgr == nil {
 		return NotificationConfig{}
@@ -1548,13 +1466,11 @@ func (a *App) GetNotificationConfig() NotificationConfig {
 	return a.notificationMgr.GetConfig()
 }
 
-
 func (a *App) SetNotificationEnabled(enabled bool) {
 	if a.notificationMgr != nil {
 		a.notificationMgr.SetEnabled(enabled)
 	}
 }
-
 
 func (a *App) SetNotificationSound(sound string) {
 	if a.notificationMgr != nil {
@@ -1562,14 +1478,12 @@ func (a *App) SetNotificationSound(sound string) {
 	}
 }
 
-
 func (a *App) TestNotificationSound() error {
 	if a.notificationMgr != nil {
 		return a.notificationMgr.TestSound()
 	}
 	return fmt.Errorf("notification manager not initialized")
 }
-
 
 func (a *App) GetAvailableSounds() []string {
 	if a.notificationMgr != nil {
@@ -1583,14 +1497,12 @@ func (a *App) GetAvailableSounds() []string {
 	return []string{"default"}
 }
 
-
 func (a *App) SnoozeNotificationSound(minutes int) {
 	if a.notificationMgr != nil {
 		a.notificationMgr.SnoozeSound(minutes)
 		runtime.EventsEmit(a.ctx, "notification-snoozed", minutes)
 	}
 }
-
 
 func (a *App) UnsnoozeNotificationSound() {
 	if a.notificationMgr != nil {
@@ -1599,7 +1511,6 @@ func (a *App) UnsnoozeNotificationSound() {
 	}
 }
 
-
 func (a *App) IsNotificationSnoozed() bool {
 	if a.notificationMgr != nil {
 		return a.notificationMgr.IsSnoozeActive()
@@ -1607,19 +1518,18 @@ func (a *App) IsNotificationSnoozed() bool {
 	return false
 }
 
-
 func (a *App) shutdown(ctx context.Context) {
-	a.logger.Info("PagerOps shutting down...")
-	
-	// Signal all goroutines to stop
+	a.logger.Info("Shutting down PagerOps...")
+
+	// Signal shutdown
 	close(a.shutdownChan)
-	
-	// Stop all polling cycles
+
+	// Stop all polling
 	a.StopPolling()
 	a.StopUserPolling()
 	a.StopResolvedPolling()
 
-	// Wait for all goroutines to finish with timeout
+	// Wait for goroutines with timeout
 	done := make(chan struct{})
 	go func() {
 		a.shutdownWg.Wait()
@@ -1628,23 +1538,25 @@ func (a *App) shutdown(ctx context.Context) {
 
 	select {
 	case <-done:
-		a.logger.Info("All goroutines stopped successfully")
-	case <-time.After(5 * time.Second):
-		a.logger.Warn("Timeout waiting for goroutines to stop")
+		a.logger.Info("All goroutines stopped")
+	case <-time.After(10 * time.Second):
+		a.logger.Warn("Shutdown timeout - some goroutines may not have stopped")
 	}
 
-	// Close database after all goroutines have stopped
+	// Shutdown the client API queue
+	if a.client != nil {
+		a.client.Shutdown()
+	}
+
+	// Close database
 	if a.db != nil {
 		if err := a.db.Close(); err != nil {
 			a.logger.Error(fmt.Sprintf("Failed to close database: %v", err))
-		} else {
-			a.logger.Info("Database closed successfully")
 		}
 	}
 
-	// Close logger last
+	// Close logger
 	if a.logger != nil {
-		a.logger.Info("Shutdown complete")
 		a.logger.Close()
 	}
 }
