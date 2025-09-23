@@ -173,12 +173,12 @@ func (c *Client) cleanupCallTimes() {
 
 // executeAPICall performs the actual API call based on request type
 func (c *Client) executeAPICall(req *APIRequest) {
+	atomic.AddInt64(&c.apiQueue.totalCalls, 1)
+
 	var result interface{}
 	var err error
 
-	// Track metrics
-	atomic.AddInt64(&c.apiQueue.totalCalls, 1)
-
+	// Process based on request type
 	switch req.Type {
 	case "GetCurrentUser":
 		opts := req.Options.(pagerduty.GetCurrentUserOptions)
@@ -193,6 +193,7 @@ func (c *Client) executeAPICall(req *APIRequest) {
 	}
 
 	if err != nil {
+		// Increment failure counter atomically
 		atomic.AddInt64(&c.apiQueue.failedCalls, 1)
 		c.logger(fmt.Sprintf("API call failed: %s - %v", req.Type, err))
 	}
