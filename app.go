@@ -383,24 +383,72 @@ func (a *App) processAndUpdateIncidents(
 	default:
 	}
 
-	// Update database with new incidents from this source
-	updatedCount := 0
+	// Get selected services for filtering
+	a.mu.RLock()
+	selectedServices := append([]string{}, a.selectedServices...)
+	a.mu.RUnlock()
+
+	// Collect incident IDs from current fetch
+	currentIncidentIDs := make([]string, len(incidents))
+	for i, incident := range incidents {
+		currentIncidentIDs[i] = incident.IncidentID
+	}
+
+	// Get all currently open incidents from database before update
+	existingOpenIncidents, err := a.db.GetOpenIncidents()
+	if err != nil {
+		if err.Error() == "sql: database is closed" {
+			return
+		}
+		a.logger.Error(fmt.Sprintf("Failed to get existing open incidents: %v", err))
+		return
+	}
+
+	// Identify stale incidents (in DB but not in API response)
+	staleIDs := []string{}
+	existingMap := make(map[string]bool)
+	for _, existing := range existingOpenIncidents {
+		existingMap[existing.IncidentID] = true
+	}
+	
+	currentMap := make(map[string]bool)
 	for _, incident := range incidents {
-		if err := a.db.UpsertIncident(incident); err != nil {
-			if err.Error() == "sql: database is closed" {
-				a.logger.Info("Database closed, stopping incident updates")
-				return
+		currentMap[incident.IncidentID] = true
+	}
+
+	// Find incidents that are in DB but not in current API response
+	for _, existing := range existingOpenIncidents {
+		if !currentMap[existing.IncidentID] {
+			// Only mark as stale if it's from the same service set we're fetching
+			if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
+				staleIDs = append(staleIDs, existing.IncidentID)
+				a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
 			}
-			a.logger.Error(fmt.Sprintf("Failed to upsert incident: %v", err))
-		} else {
-			updatedCount++
 		}
 	}
 
-	if updatedCount > 0 {
-		a.logger.Debug(fmt.Sprintf("[%s] Updated %d incidents in database", source, updatedCount))
+	// Use batch update for better atomicity
+	if err := a.db.UpdateIncidentsBatch(incidents, staleIDs); err != nil {
+		if err.Error() == "sql: database is closed" {
+			a.logger.Info("Database closed, stopping incident updates")
+			return
+		}
+		a.logger.Error(fmt.Sprintf("Failed to batch update incidents: %v", err))
+		// Fall back to individual updates
+		for _, incident := range incidents {
+			if err := a.db.UpsertIncident(incident); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to upsert incident: %v", err))
+			}
+		}
+		// Still try to remove stale incidents
+		if len(currentIncidentIDs) > 0 || len(selectedServices) > 0 {
+			if err := a.db.RemoveStaleOpenIncidents(currentIncidentIDs, selectedServices); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to remove stale incidents: %v", err))
+			}
+		}
 	}
 
+	// Get updated open incidents after database changes
 	allOpenIncidents, err := a.db.GetOpenIncidents()
 	if err != nil {
 		if err.Error() == "sql: database is closed" {
@@ -415,7 +463,7 @@ func (a *App) processAndUpdateIncidents(
 		currentOpen[incident.IncidentID] = incident
 	}
 
-	// Get previous state
+	// Get previous state with proper locking
 	a.previousOpenMu.RLock()
 	previousOpen := make(map[string]database.IncidentData)
 	for k, v := range a.previousOpenIncidents {
@@ -423,7 +471,7 @@ func (a *App) processAndUpdateIncidents(
 	}
 	a.previousOpenMu.RUnlock()
 
-	// Detect REAL status transitions (only if incident existed before and now doesn't)
+	// Detect REAL status transitions
 	var hasTransitions bool
 	for id, prevIncident := range previousOpen {
 		if _, exists := currentOpen[id]; !exists {
@@ -449,6 +497,7 @@ func (a *App) processAndUpdateIncidents(
 		a.logger.Info(fmt.Sprintf("[%s] Transitions detected, resolved polling will update", source))
 	}
 
+	// Update previous state with proper locking
 	a.previousOpenMu.Lock()
 	a.previousOpenIncidents = currentOpen
 	a.previousOpenMu.Unlock()
@@ -459,6 +508,16 @@ func (a *App) processAndUpdateIncidents(
 	// Check for triggered incidents and send notifications
 	a.checkForTriggeredIncidents()
 }
+
+func containsService(services []string, serviceID string) bool {
+	for _, s := range services {
+		if s == serviceID {
+			return true
+		}
+	}
+	return false
+}
+
 
 func (a *App) checkForTriggeredIncidents() {
 	openIncidents, err := a.db.GetOpenIncidents()
@@ -737,12 +796,16 @@ func (a *App) fetchServiceIncidents() {
 		return
 	}
 
-	// Get selected services
+	// Get selected services with proper locking
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
 	a.mu.RUnlock()
 
 	if len(selectedServices) == 0 {
+		// Still need to clear any stale open incidents
+		if err := a.db.RemoveStaleOpenIncidents([]string{}, []string{}); err != nil {
+			a.logger.Error(fmt.Sprintf("Failed to clear stale incidents: %v", err))
+		}
 		return
 	}
 
@@ -804,9 +867,14 @@ func (a *App) fetchUserIncidents() {
 		return
 	}
 
-	// Fetch incidents assigned to user
+	// Get selected services for context
+	a.mu.RLock()
+	selectedServices := append([]string{}, a.selectedServices...)
+	a.mu.RUnlock()
+
+	// Fetch incidents assigned to user (API already filters by services if provided)
 	incidents, err := a.fetchWithRetry(func() ([]database.IncidentData, error) {
-		return a.client.FetchOpenIncidents([]string{}, userID)
+		return a.client.FetchOpenIncidents(selectedServices, userID)
 	}, 3)
 
 	if err != nil {
