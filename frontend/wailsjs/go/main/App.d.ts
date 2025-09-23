@@ -22,6 +22,8 @@ export function GetResolvedIncidents(arg1:Array<string>):Promise<Array<database.
 
 export function GetSelectedServices():Promise<Array<string>>;
 
+export function GetServiceNameByID(arg1:string):Promise<string>;
+
 export function GetServicesConfig():Promise<store.ServicesConfig>;
 
 export function IsNotificationSnoozed():Promise<boolean>;

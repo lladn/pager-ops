@@ -8,12 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/gen2brain/beeep"
-	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/mp3"
-	"github.com/gopxl/beep/v2/speaker"
-	"github.com/gopxl/beep/v2/wav"
 )
 
 type NotificationConfig struct {
@@ -23,31 +17,123 @@ type NotificationConfig struct {
 	SnoozeUntil time.Time `json:"snoozeUntil"`
 }
 
+// SoundRequest represents a sound playback request
+type SoundRequest struct {
+	Type        string // "default" or "custom"
+	SoundFile   string // file for custom
+	ServiceName string // service name for default say command
+	ResultChan  chan error
+}
+
+// NotificationManager manages notifications and sounds
 type NotificationManager struct {
 	config      NotificationConfig
 	mu          sync.RWMutex
 	logger      *Logger
-	soundPlayer *SoundPlayer
+	soundQueue  chan SoundRequest
+	rateLimiter *RateLimiter
+	shutdownCh  chan struct{}
+	wg          sync.WaitGroup
 }
 
-type SoundPlayer struct {
-	initialized bool
-	initMu      sync.Mutex     // Protect the initialization state
-	speakerMu   sync.Mutex     // Protect ALL speaker operations
-	initOnce    sync.Once
-	initErr     error
+// RateLimiter implements a simple rate limiting mechanism
+type RateLimiter struct {
+	mu           sync.Mutex
+	lastNotif    time.Time
+	minInterval  time.Duration
+	burstCount   int
+	burstWindow  time.Duration
+	windowStart  time.Time
+}
+
+func NewRateLimiter() *RateLimiter {
+	return &RateLimiter{
+		minInterval: 2 * time.Second,        // Minimum 2 seconds between notifications
+		burstWindow: 30 * time.Second,       // Window for burst detection
+		burstCount:  0,
+		windowStart: time.Now(),
+	}
+}
+
+func (rl *RateLimiter) Allow() bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	
+	// Reset burst window if expired
+	if now.Sub(rl.windowStart) > rl.burstWindow {
+		rl.burstCount = 0
+		rl.windowStart = now
+	}
+
+	// Check minimum interval
+	if now.Sub(rl.lastNotif) < rl.minInterval {
+		return false
+	}
+
+	// Check burst limit (max 5 notifications in 30 seconds)
+	if rl.burstCount >= 5 {
+		return false
+	}
+
+	rl.lastNotif = now
+	rl.burstCount++
+	return true
 }
 
 func NewNotificationManager(logger *Logger) *NotificationManager {
-	return &NotificationManager{
+	nm := &NotificationManager{
 		config: NotificationConfig{
 			Enabled: true,
 			Sound:   "default",
 			Snoozed: false,
 		},
 		logger:      logger,
-		soundPlayer: &SoundPlayer{},
+		soundQueue:  make(chan SoundRequest, 100), // Buffered channel
+		rateLimiter: NewRateLimiter(),
+		shutdownCh:  make(chan struct{}),
 	}
+
+	// Start the sound queue worker
+	nm.wg.Add(1)
+	go nm.soundWorker()
+
+	return nm
+}
+
+// soundWorker processes sound requests sequentially
+func (nm *NotificationManager) soundWorker() {
+	defer nm.wg.Done()
+	
+	for {
+		select {
+		case <-nm.shutdownCh:
+			return
+		case req := <-nm.soundQueue:
+			var err error
+			if req.Type == "default" {
+				err = nm.executeDefaultSound(req.ServiceName)
+			} else {
+				err = nm.executeCustomSound(req.SoundFile)
+			}
+			
+			// Send result if channel provided
+			if req.ResultChan != nil {
+				select {
+				case req.ResultChan <- err:
+				case <-time.After(100 * time.Millisecond):
+					// Don't block if receiver is not ready
+				}
+			}
+		}
+	}
+}
+
+// Shutdown gracefully stops the notification manager
+func (nm *NotificationManager) Shutdown() {
+	close(nm.shutdownCh)
+	nm.wg.Wait()
 }
 
 func (nm *NotificationManager) GetConfig() NotificationConfig {
@@ -113,7 +199,7 @@ func (nm *NotificationManager) IsSnoozeActive() bool {
 	nm.mu.RLock()
 	snoozed := nm.config.Snoozed
 	snoozeUntil := nm.config.SnoozeUntil
-	nm.mu.RUnlock() // Release the read lock before potentially calling UnsnoozeSound
+	nm.mu.RUnlock()
 
 	if !snoozed {
 		return false
@@ -121,7 +207,6 @@ func (nm *NotificationManager) IsSnoozeActive() bool {
 
 	// Check if snooze period has expired
 	if time.Now().After(snoozeUntil) {
-		// Unsnooze without holding any locks to avoid deadlock
 		nm.UnsnoozeSound()
 		return false
 	}
@@ -129,7 +214,8 @@ func (nm *NotificationManager) IsSnoozeActive() bool {
 	return true
 }
 
-func (nm *NotificationManager) SendNotification(title, message, serviceName string) error {
+
+func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL, serviceName string) error {
 	nm.mu.RLock()
 	config := nm.config
 	nm.mu.RUnlock()
@@ -138,25 +224,61 @@ func (nm *NotificationManager) SendNotification(title, message, serviceName stri
 		return nil
 	}
 
-	// Send desktop notification
-	err := beeep.Notify(title, message, "")
-	if err != nil && nm.logger != nil {
-		nm.logger.Error(fmt.Sprintf("Failed to send notification: %v", err))
+	// Apply rate limiting
+	if !nm.rateLimiter.Allow() {
+		nm.logger.Warn("Notification rate limited - too many notifications")
+		return nil
 	}
 
-	// Play sound if not snoozed
-	if !nm.IsSnoozeActive() {
-		if config.Sound == "default" {
-			nm.playDefaultSound(serviceName)
-		} else {
-			nm.playCustomSound(config.Sound)
+	// Use terminal-notifier for macOS notifications with URL support
+	args := []string{
+		"-title", serviceSummary,  // Service summary as title
+		"-message", message,        // Incident title as message  
+	}
+
+	// Add URL if provided - clicking notification will open the incident
+	if htmlURL != "" {
+		args = append(args, "-open", htmlURL)
+	}
+
+	cmd := exec.Command("terminal-notifier", args...)
+	err := cmd.Run()
+	if err != nil && nm.logger != nil {
+		// Fallback to osascript if terminal-notifier is not installed
+		fallbackCmd := exec.Command("osascript", "-e", 
+			fmt.Sprintf(`display notification "%s" with title "%s"`, message, serviceSummary))
+		if fallbackErr := fallbackCmd.Run(); fallbackErr != nil {
+			nm.logger.Error(fmt.Sprintf("Failed to send notification: %v (fallback also failed: %v)", err, fallbackErr))
+			return fmt.Errorf("notification failed: %w", err)
 		}
 	}
 
-	return err
+	// Queue sound playback if not snoozed
+	if !nm.IsSnoozeActive() {
+		soundReq := SoundRequest{
+			Type:        "default",
+			ServiceName: serviceName, // Use the configured service name
+		}
+		
+		if config.Sound != "default" {
+			soundReq.Type = "custom"
+			soundReq.SoundFile = config.Sound
+		}
+		
+		// Non-blocking send to queue
+		select {
+		case nm.soundQueue <- soundReq:
+			// Queued successfully
+		default:
+			nm.logger.Warn("Sound queue full, skipping sound playback")
+		}
+	}
+
+	return nil
 }
 
-func (nm *NotificationManager) playDefaultSound(serviceName string) {
+// executeDefaultSound uses the say command with the configured service name
+func (nm *NotificationManager) executeDefaultSound(serviceName string) error {
 	if serviceName == "" {
 		serviceName = "New Incident"
 	}
@@ -165,93 +287,29 @@ func (nm *NotificationManager) playDefaultSound(serviceName string) {
 	err := cmd.Run()
 	if err != nil && nm.logger != nil {
 		nm.logger.Error(fmt.Sprintf("Failed to play default sound: %v", err))
+		return err
 	}
+	return nil
 }
 
-func (nm *NotificationManager) playCustomSound(soundFile string) {
+// executeCustomSound uses afplay for custom sound files
+func (nm *NotificationManager) executeCustomSound(soundFile string) error {
 	soundPath := filepath.Join(".", "assets", "sounds", soundFile)
 
-	// Open the sound file first
-	f, err := os.Open(soundPath)
-	if err != nil {
-		nm.logger.Error(fmt.Sprintf("Failed to open sound file %s: %v", soundPath, err))
-		return
-	}
-	defer f.Close()
-
-	var stream beep.StreamSeekCloser
-	var format beep.Format
-
-	// Decode based on file extension
-	ext := strings.ToLower(filepath.Ext(soundFile))
-	switch ext {
-	case ".mp3":
-		stream, format, err = mp3.Decode(f)
-	case ".wav":
-		stream, format, err = wav.Decode(f)
-	default:
-		nm.logger.Error(fmt.Sprintf("Unsupported audio format: %s", ext))
-		return
+	// Check if file exists
+	if _, err := os.Stat(soundPath); err != nil {
+		nm.logger.Error(fmt.Sprintf("Sound file not found: %s", soundPath))
+		return err
 	}
 
-	if err != nil {
-		nm.logger.Error(fmt.Sprintf("Failed to decode sound file: %v", err))
-		return
+	// Use afplay for macOS
+	cmd := exec.Command("afplay", soundPath)
+	err := cmd.Run()
+	if err != nil && nm.logger != nil {
+		nm.logger.Error(fmt.Sprintf("Failed to play custom sound %s: %v", soundPath, err))
+		return err
 	}
-	defer stream.Close()
-
-	// Synchronize ALL speaker operations to prevent race conditions
-	// Lock the speaker mutex for the entire initialization and playback sequence
-	nm.soundPlayer.speakerMu.Lock()
-	defer nm.soundPlayer.speakerMu.Unlock()
-
-	// Check if already initialized inside the speaker lock
-	nm.soundPlayer.initMu.Lock()
-	needsInit := !nm.soundPlayer.initialized
-	nm.soundPlayer.initMu.Unlock()
-
-	if needsInit {
-		// Initialize speaker only once, but within the speaker lock
-		nm.soundPlayer.initOnce.Do(func() {
-			nm.soundPlayer.initErr = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-			if nm.soundPlayer.initErr == nil {
-				nm.soundPlayer.initMu.Lock()
-				nm.soundPlayer.initialized = true
-				nm.soundPlayer.initMu.Unlock()
-				nm.logger.Info("Speaker initialized successfully")
-			}
-		})
-
-		if nm.soundPlayer.initErr != nil {
-			nm.logger.Error(fmt.Sprintf("Failed to initialize speaker: %v", nm.soundPlayer.initErr))
-			return
-		}
-	}
-
-	// Play the sound (still within speaker lock to prevent concurrent access)
-	done := make(chan bool, 1) // Buffered channel to prevent goroutine leak
-	speaker.Play(beep.Seq(stream, beep.Callback(func() {
-		select {
-		case done <- true:
-		default:
-			// Channel was already closed or full, ignore
-		}
-	})))
-
-	// Release the speaker lock before waiting for completion
-	nm.soundPlayer.speakerMu.Unlock()
-
-	// Wait for playback to complete (with timeout)
-	select {
-	case <-done:
-		// Sound finished playing
-	case <-time.After(10 * time.Second):
-		// Timeout after 10 seconds
-		nm.logger.Warn("Sound playback timeout")
-	}
-	
-	// Re-acquire lock before function returns (deferred unlock will release it)
-	nm.soundPlayer.speakerMu.Lock()
+	return nil
 }
 
 func (nm *NotificationManager) GetAvailableSounds() ([]string, error) {
@@ -278,7 +336,7 @@ func (nm *NotificationManager) GetAvailableSounds() ([]string, error) {
 
 		name := entry.Name()
 		ext := strings.ToLower(filepath.Ext(name))
-		if ext == ".mp3" || ext == ".wav" {
+		if ext == ".mp3" || ext == ".wav" || ext == ".m4a" || ext == ".aiff" {
 			// Remove extension for display
 			nameWithoutExt := strings.TrimSuffix(name, ext)
 			sounds = append(sounds, nameWithoutExt)
@@ -293,12 +351,31 @@ func (nm *NotificationManager) TestSound() error {
 	sound := nm.config.Sound
 	nm.mu.RUnlock()
 
-	// Serialize test sound calls to prevent concurrent speaker access
-	if sound == "default" {
-		nm.playDefaultSound("Hello There")
-	} else {
-		nm.playCustomSound(sound)
+	// Create a request with result channel for testing
+	resultChan := make(chan error, 1)
+	
+	soundReq := SoundRequest{
+		Type:        "default",
+		ServiceName: "Test Notification",
+		ResultChan:  resultChan,
+	}
+	
+	if sound != "default" {
+		soundReq.Type = "custom"
+		soundReq.SoundFile = sound
 	}
 
-	return nil
+	// Send to queue
+	select {
+	case nm.soundQueue <- soundReq:
+		// Wait for result with timeout
+		select {
+		case err := <-resultChan:
+			return err
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("sound playback timeout")
+		}
+	default:
+		return fmt.Errorf("sound queue is full")
+	}
 }
