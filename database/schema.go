@@ -455,6 +455,140 @@ func (db *DB) GetNewestResolvedIncidentDate() (time.Time, error) {
 	return updatedAt, nil
 }
 
+func (db *DB) RemoveStaleOpenIncidents(currentIncidentIDs []string, serviceIDs []string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if len(currentIncidentIDs) == 0 && len(serviceIDs) > 0 {
+		// If no incidents returned from API but we have services, remove all open incidents for those services
+		query := `
+			UPDATE incidents 
+			SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
+			WHERE status IN ('triggered', 'acknowledged')
+		`
+		
+		if len(serviceIDs) > 0 {
+			placeholders := make([]string, len(serviceIDs))
+			args := make([]interface{}, len(serviceIDs))
+			for i, id := range serviceIDs {
+				placeholders[i] = "?"
+				args[i] = id
+			}
+			query += fmt.Sprintf(" AND service_id IN (%s)", strings.Join(placeholders, ","))
+			
+			_, err := db.conn.Exec(query, args...)
+			if err != nil {
+				return fmt.Errorf("failed to remove all stale open incidents: %w", err)
+			}
+		}
+		return nil
+	}
+
+	// Build NOT IN clause for incident IDs
+	placeholders := make([]string, len(currentIncidentIDs))
+	args := make([]interface{}, 0, len(currentIncidentIDs)+len(serviceIDs))
+	
+	for i, id := range currentIncidentIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE incidents 
+		SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
+		WHERE status IN ('triggered', 'acknowledged')
+		AND incident_id NOT IN (%s)
+	`, strings.Join(placeholders, ","))
+
+	// Add service filter if provided
+	if len(serviceIDs) > 0 {
+		servicePlaceholders := make([]string, len(serviceIDs))
+		for i, id := range serviceIDs {
+			servicePlaceholders[i] = "?"
+			args = append(args, id)
+		}
+		query += fmt.Sprintf(" AND service_id IN (%s)", strings.Join(servicePlaceholders, ","))
+	}
+
+	_, err := db.conn.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to remove stale open incidents: %w", err)
+	}
+
+	return nil
+}
+
+func (db *DB) UpdateIncidentsBatch(incidents []IncidentData, staleIDs []string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare upsert statement
+	upsertStmt, err := tx.Prepare(`
+		REPLACE INTO incidents (
+			incident_id, incident_number, title, service_summary, 
+			service_id, status, html_url, created_at, updated_at, 
+			alert_count, urgency
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare upsert statement: %w", err)
+	}
+	defer upsertStmt.Close()
+
+	// Upsert all current incidents
+	for _, incident := range incidents {
+		_, err := upsertStmt.Exec(
+			incident.IncidentID,
+			incident.IncidentNumber,
+			incident.Title,
+			incident.ServiceSummary,
+			incident.ServiceID,
+			incident.Status,
+			incident.HTMLURL,
+			incident.CreatedAt,
+			incident.UpdatedAt,
+			incident.AlertCount,
+			incident.Urgency,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to upsert incident %s: %w", incident.IncidentID, err)
+		}
+	}
+
+	// Mark stale incidents as resolved
+	if len(staleIDs) > 0 {
+		placeholders := make([]string, len(staleIDs))
+		args := make([]interface{}, len(staleIDs))
+		for i, id := range staleIDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+
+		query := fmt.Sprintf(`
+			UPDATE incidents 
+			SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
+			WHERE incident_id IN (%s)
+		`, strings.Join(placeholders, ","))
+
+		_, err = tx.Exec(query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to mark stale incidents as resolved: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // Close - ORIGINAL METHOD UNCHANGED
 func (db *DB) Close() error {
 	return db.conn.Close()
