@@ -46,12 +46,12 @@ type App struct {
 	previousOpenMu        sync.RWMutex
 	shutdownChan          chan struct{}
 	shutdownWg            sync.WaitGroup
-	userPolling    bool
-	userPollTicker *time.Ticker
-	userPollMu     sync.RWMutex
-	latestResolvedDate time.Time
-	latestResolvedMu   sync.RWMutex
-	resolvedFetchMu sync.Mutex
+	userPolling           bool
+	userPollTicker        *time.Ticker
+	userPollMu            sync.RWMutex
+	latestResolvedDate    time.Time
+	latestResolvedMu      sync.RWMutex
+	resolvedFetchMu       sync.Mutex
 }
 
 // RateLimitTracker
@@ -71,14 +71,14 @@ type UserCache struct {
 }
 
 type CircuitBreaker struct {
-	failures       int32
-	lastFailure    time.Time
-	state          int32 // 0: closed, 1: open, 2: half-open
-	maxFailures    int32
-	cooldownPeriod time.Duration
+	failures          int32
+	lastFailure       time.Time
+	state             int32 // 0: closed, 1: open, 2: half-open
+	maxFailures       int32
+	cooldownPeriod    time.Duration
 	backoffMultiplier float64
 	currentBackoff    time.Duration
-	mu             sync.RWMutex
+	mu                sync.RWMutex
 }
 
 func NewRateLimitTracker() *RateLimitTracker {
@@ -173,7 +173,7 @@ func (cb *CircuitBreaker) Allow() bool {
 func (cb *CircuitBreaker) RecordSuccess() {
 	atomic.StoreInt32(&cb.failures, 0)
 	atomic.StoreInt32(&cb.state, 0) // Closed
-	
+
 	// Reset backoff on success
 	cb.mu.Lock()
 	cb.currentBackoff = cb.cooldownPeriod
@@ -185,11 +185,11 @@ func (cb *CircuitBreaker) RecordFailure() {
 
 	cb.mu.Lock()
 	cb.lastFailure = time.Now()
-	
+
 	// Exponential backoff: double the backoff period on each failure
 	if failures >= cb.maxFailures {
 		atomic.StoreInt32(&cb.state, 1) // Open
-		
+
 		// Increase backoff exponentially, cap at 5 minutes
 		cb.currentBackoff = time.Duration(float64(cb.currentBackoff) * cb.backoffMultiplier)
 		if cb.currentBackoff > 5*time.Minute {
@@ -410,7 +410,7 @@ func (a *App) processAndUpdateIncidents(
 	for _, existing := range existingOpenIncidents {
 		existingMap[existing.IncidentID] = true
 	}
-	
+
 	currentMap := make(map[string]bool)
 	for _, incident := range incidents {
 		currentMap[incident.IncidentID] = true
@@ -518,7 +518,6 @@ func containsService(services []string, serviceID string) bool {
 	return false
 }
 
-
 func (a *App) checkForTriggeredIncidents() {
 	openIncidents, err := a.db.GetOpenIncidents()
 	if err != nil {
@@ -529,26 +528,47 @@ func (a *App) checkForTriggeredIncidents() {
 		return
 	}
 
+	// Get selected services to filter notifications
+	a.mu.RLock()
+	selectedServices := append([]string{}, a.selectedServices...)
+	a.mu.RUnlock()
+
 	// Use dedicated mutex for lastIncidents
 	a.lastIncidentsMu.Lock()
 	defer a.lastIncidentsMu.Unlock()
 
 	for _, incident := range openIncidents {
+		// Skip notifications for incidents from non-selected services
+		if len(selectedServices) > 0 && !containsService(selectedServices, incident.ServiceID) {
+			// Still track the status for when the service is re-selected
+			a.lastIncidents[incident.IncidentID] = incident.Status
+			continue
+		}
+
 		lastStatus, exists := a.lastIncidents[incident.IncidentID]
 
 		// Check if this is a new triggered incident or status changed to triggered
 		if incident.Status == "triggered" && (!exists || lastStatus != "triggered") {
+			// Get the configured service name for the say command
+			serviceName := a.GetServiceNameByID(incident.ServiceID)
+			if serviceName == "" {
+				// Fallback to service summary if no configured name found
+				serviceName = incident.ServiceSummary
+			}
+
 			// Send notification for triggered incident
 			if a.notificationMgr != nil {
 				err := a.notificationMgr.SendNotification(
-					incident.ServiceSummary,
-					incident.Title,
-					incident.ServiceSummary,
+					incident.ServiceSummary, // Title for terminal-notifier
+					incident.Title,          // Message for terminal-notifier
+					incident.HTMLURL,        // URL for click-to-open
+					serviceName,             // Service name for say command
 				)
 				if err != nil {
 					a.logger.Error(fmt.Sprintf("Failed to send notification: %v", err))
 				}
-				a.logger.Info(fmt.Sprintf("Notification sent for triggered incident: %s", incident.IncidentID))
+				a.logger.Info(fmt.Sprintf("Notification sent for triggered incident: %s (service: %s)",
+					incident.IncidentID, serviceName))
 			}
 		}
 
@@ -583,7 +603,7 @@ func (a *App) StartPolling() {
 
 	// Store ticker channel reference while holding lock
 	tickerChan := a.pollTicker.C
-	
+
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -634,7 +654,7 @@ func (a *App) StartUserPolling() {
 
 	// Store ticker channel reference while holding lock
 	tickerChan := a.userPollTicker.C
-	
+
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -725,7 +745,7 @@ func (a *App) StartResolvedPolling() {
 
 	// Store ticker channel reference while holding lock
 	tickerChan := a.resolvedPollTicker.C
-	
+
 	a.shutdownWg.Add(1)
 	go func() {
 		defer a.shutdownWg.Done()
@@ -1100,7 +1120,7 @@ func (a *App) performInitialResolvedFetch() {
 	// Start with 3 days ago
 	since := time.Now().Add(-72 * time.Hour)
 	until := time.Now()
-	
+
 	a.logger.Info(fmt.Sprintf("Performing initial resolved incidents fetch from %s", since.Format(time.RFC3339)))
 
 	// Update the latest resolved date
@@ -1151,7 +1171,6 @@ func (a *App) performInitialResolvedFetch() {
 	a.logger.Info(fmt.Sprintf("Initial fetch complete: fetched=%d, updated=%d resolved incidents", len(incidents), updateCount))
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 }
-
 
 func (a *App) fetchWithRetry(
 	fn func() ([]database.IncidentData, error),
@@ -1261,7 +1280,7 @@ func (a *App) GetResolvedIncidents(
 		Statuses:   []string{"resolved"},
 		Since:      time.Now().Add(-48 * time.Hour),
 	}
-	
+
 	incidents, err := a.client.FetchIncidentsWithPagination(opts, 50)
 	if err != nil {
 		a.logger.Error(fmt.Sprintf("Failed to fetch resolved incidents: %v", err))
@@ -1435,6 +1454,36 @@ func (a *App) GetServicesConfig() (
 	return a.servicesConfig, nil
 }
 
+func (a *App) GetServiceNameByID(serviceID string) string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.servicesConfig == nil {
+		return ""
+	}
+
+	for _, service := range a.servicesConfig.Services {
+		switch id := service.ID.(type) {
+		case string:
+			if id == serviceID {
+				return service.Name
+			}
+		case []interface{}:
+			for _, sid := range id {
+				if strID, ok := sid.(string); ok && strID == serviceID {
+					return service.Name
+				}
+			}
+		case float64:
+			if fmt.Sprintf("%.0f", id) == serviceID {
+				return service.Name
+			}
+		}
+	}
+
+	return ""
+}
+
 func (a *App) SetSelectedServices(
 	services []string,
 ) {
@@ -1565,6 +1614,11 @@ func (a *App) shutdown(ctx context.Context) {
 
 	// Then signal shutdown to running goroutines
 	close(a.shutdownChan)
+
+	// Shutdown notification manager
+	if a.notificationMgr != nil {
+		a.notificationMgr.Shutdown()
+	}
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
