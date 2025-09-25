@@ -31,6 +31,10 @@
         -webkit-app-region: drag;
         --wails-draggable: drag;
         cursor: default;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .toolbar-content {
