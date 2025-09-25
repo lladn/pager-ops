@@ -17,13 +17,12 @@
     import Settings from './components/Settings.svelte';
     
     let searchQuery = '';
+    let sortBy: 'time' | 'service' | 'alerts' = 'time';
     
     onMount(async () => {
-        // Initialize all event listeners
         initializeEventListeners();
         initializeNotificationListeners();
         
-        // Load initial data
         await Promise.all([
             loadOpenIncidents(),
             loadResolvedIncidents(),
@@ -45,12 +44,16 @@
     function handleSearch(event: CustomEvent) {
         searchQuery = event.detail;
     }
-  </script>
-  
-  <div class="app">
+    
+    function handleSort(event: CustomEvent) {
+        sortBy = event.detail;
+    }
+</script>
+
+<div class="app">
     <ToolBar />
     
-    <Header bind:searchQuery on:search={handleSearch} />
+    <Header bind:searchQuery bind:sortBy on:search={handleSearch} on:sort={handleSort} />
     
     <div class="tabs-container">
         <button 
@@ -72,14 +75,14 @@
     </div>
     
     <main class="main-content">
-        <IncidentPanel type="open" {searchQuery} />
-        <IncidentPanel type="resolved" {searchQuery} />
+        <IncidentPanel type="open" {searchQuery} {sortBy} />
+        <IncidentPanel type="resolved" {searchQuery} {sortBy} />
     </main>
     
     <Settings />
-  </div>
-  
-  <style>
+</div>
+
+<style>
     :global(body) {
         margin: 0;
         padding: 0;
@@ -96,33 +99,33 @@
     }
     
     .app {
+        width: 100%;
+        height: 100vh;
         display: flex;
         flex-direction: column;
-        height: 100vh;
         background: #f9fafb;
     }
     
     .tabs-container {
         background: white;
+        border-bottom: 1px solid #e5e7eb;
         display: flex;
         padding: 0 20px;
-        border-bottom: 1px solid #e5e7eb;
     }
     
     .tab-button {
+        padding: 12px 16px;
         background: transparent;
         border: none;
-        padding: 14px 20px;
+        border-bottom: 2px solid transparent;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
         cursor: pointer;
         display: flex;
         align-items: center;
         gap: 8px;
-        color: #6b7280;
-        font-size: 14px;
-        font-weight: 500;
-        border-bottom: 3px solid transparent;
         transition: all 0.2s;
-        margin-right: 8px;
     }
     
     .tab-button:hover {
@@ -130,8 +133,8 @@
     }
     
     .tab-button.active {
-        color: #111827;
-        border-bottom-color: #111827;
+        color: #2563eb;
+        border-bottom-color: #2563eb;
     }
     
     .tab-label {
@@ -139,9 +142,8 @@
     }
     
     .tab-count {
-        background: #f3f4f6;
-        color: #374151;
         padding: 2px 8px;
+        background: #e5e7eb;
         border-radius: 10px;
         font-size: 12px;
         font-weight: 600;
@@ -150,14 +152,13 @@
     }
     
     .tab-button.active .tab-count {
-        background: #111827;
-        color: white;
+        background: #dbeafe;
+        color: #2563eb;
     }
     
     .main-content {
         flex: 1;
         overflow: hidden;
         position: relative;
-        background: white;
     }
-  </style>
+</style>
