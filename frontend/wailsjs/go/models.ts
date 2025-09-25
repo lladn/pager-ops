@@ -63,6 +63,7 @@ export namespace main {
 	    snoozed: boolean;
 	    // Go type: time
 	    snoozeUntil: any;
+	    browserRedirect: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new NotificationConfig(source);
@@ -74,6 +75,7 @@ export namespace main {
 	        this.sound = source["sound"];
 	        this.snoozed = source["snoozed"];
 	        this.snoozeUntil = this.convertValues(source["snoozeUntil"], null);
+	        this.browserRedirect = source["browserRedirect"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

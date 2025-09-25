@@ -300,6 +300,16 @@ func (a *App) startup(
 	a.notificationMgr = NewNotificationManager(a.logger)
 	a.logger.Info("Notification manager initialized")
 
+		// Load browser redirect setting from database
+		if a.db != nil {
+			if value, err := a.db.GetState("browser_redirect"); err == nil {
+				if value == "true" && a.notificationMgr != nil {
+					a.notificationMgr.SetBrowserRedirect(true)
+					a.logger.Info("Browser redirect enabled from saved settings")
+				}
+			}
+		}
+
 	// Initialize production components
 	a.rateLimitTracker = NewRateLimitTracker()
 	a.userCache = NewUserCache()
@@ -569,6 +579,9 @@ func (a *App) checkForTriggeredIncidents() {
 				}
 				a.logger.Info(fmt.Sprintf("Notification sent for triggered incident: %s (service: %s)",
 					incident.IncidentID, serviceName))
+				
+				// Queue browser redirect if enabled
+				a.notificationMgr.QueueBrowserRedirect(incident.IncidentID, incident.HTMLURL)
 			}
 		}
 
@@ -582,12 +595,39 @@ func (a *App) checkForTriggeredIncidents() {
 		incidentMap[incident.IncidentID] = true
 	}
 
+	// Remove resolved incidents from tracking - already protected by defer
 	for id := range a.lastIncidents {
 		if !incidentMap[id] {
 			delete(a.lastIncidents, id)
 		}
 	}
 }
+
+func (a *App) SetBrowserRedirect(enabled bool) {
+	if a.notificationMgr != nil {
+		a.notificationMgr.SetBrowserRedirect(enabled)
+		
+		// Persist the setting
+		if a.db != nil {
+			value := "false"
+			if enabled {
+				value = "true"
+			}
+			if err := a.db.SetState("browser_redirect", value); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to persist browser redirect setting: %v", err))
+			}
+		}
+	}
+}
+
+func (a *App) GetBrowserRedirect() bool {
+	if a.notificationMgr != nil {
+		config := a.notificationMgr.GetConfig()
+		return config.BrowserRedirect
+	}
+	return false
+}
+
 
 func (a *App) StartPolling() {
 	a.pollMu.Lock()

@@ -1,5 +1,9 @@
 <script lang="ts">
-    import { servicesConfig, selectedServices, loadOpenIncidents, loadResolvedIncidents } from '../stores/incidents';
+    import { 
+        servicesConfig, 
+        selectedServices, 
+        loadOpenIncidents, 
+        loadResolvedIncidents } from '../stores/incidents';
     import { SetSelectedServices } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     

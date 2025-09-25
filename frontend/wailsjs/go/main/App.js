@@ -14,6 +14,10 @@ export function GetAvailableSounds() {
   return window['go']['main']['App']['GetAvailableSounds']();
 }
 
+export function GetBrowserRedirect() {
+  return window['go']['main']['App']['GetBrowserRedirect']();
+}
+
 export function GetFilterByUser() {
   return window['go']['main']['App']['GetFilterByUser']();
 }
@@ -56,6 +60,10 @@ export function ReadFile(arg1) {
 
 export function RemoveServicesConfig() {
   return window['go']['main']['App']['RemoveServicesConfig']();
+}
+
+export function SetBrowserRedirect(arg1) {
+  return window['go']['main']['App']['SetBrowserRedirect'](arg1);
 }
 
 export function SetFilterByUser(arg1) {
