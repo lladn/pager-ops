@@ -102,7 +102,7 @@
                     </div>
                 {/if}
                 {#each sortedIncidents as incident (incident.incident_id)}
-                    <IncidentCard {incident} showAssignee={type === 'open'} />
+                    <IncidentCard {incident}/>
                 {/each}
             </div>
         {/if}

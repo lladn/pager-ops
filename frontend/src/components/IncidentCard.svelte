@@ -1,32 +1,40 @@
-<!-- frontend/src/components/IncidentCard.svelte -->
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
     import { formatTime } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+    import { getServiceColor } from '../lib/serviceColors';
     
     type IncidentData = database.IncidentData;
     
     export let incident: IncidentData;
-    export let showAssignee: boolean = false;
     
     $: statusColor = getStatusColor(incident.status);
     $: statusLabel = getStatusLabel(incident.status);
+    $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     
     function getStatusColor(status: string): string {
         switch (status) {
-            case 'triggered': return 'bg-red-500';
-            case 'acknowledged': return 'bg-yellow-500';
-            case 'resolved': return 'bg-green-500';
-            default: return 'bg-gray-500';
+            case 'triggered':
+                return 'bg-red-500';
+            case 'acknowledged':
+                return 'bg-yellow-500';
+            case 'resolved':
+                return 'bg-green-500';
+            default:
+                return 'bg-gray-500';
         }
     }
     
     function getStatusLabel(status: string): string {
         switch (status) {
-            case 'triggered': return 'Triggered';
-            case 'acknowledged': return 'Acknowledged';
-            case 'resolved': return 'Resolved';
-            default: return status;
+            case 'triggered':
+                return 'Triggered';
+            case 'acknowledged':
+                return 'Acknowledged';
+            case 'resolved':
+                return 'Resolved';
+            default:
+                return 'Unknown';
         }
     }
     
@@ -85,7 +93,7 @@
     </div>
     
     <div class="incident-details">
-        <span class="service-name">{incident.service_summary || 'Unknown Service'}</span>
+        <span class="service-name" style="color: {serviceColor}">{incident.service_summary || 'Unknown Service'}</span>
         <span class="separator">•</span>
         <span class="incident-time">{formatTime(incident.created_at)}</span>
         {#if incident.alert_count > 0}

@@ -6,6 +6,7 @@
         loadResolvedIncidents } from '../stores/incidents';
     import { SetSelectedServices } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
+    import { getServiceColor } from '../lib/serviceColors';
     
     let isOpen = false;
     let filterText = 'All Services';
@@ -164,7 +165,7 @@
                                 <span class="partial-check">−</span>
                             {/if}
                         </span>
-                        <span>{service.name}</span>
+                        <span class="service-label" style="color: {getServiceColor(service.name)}">{service.name}</span>
                     </button>
                 {/each}
             {:else}
@@ -204,7 +205,6 @@
     .filter-text {
         flex: 1;
         text-align: left;
-        font-weight: 500;
     }
     
     .chevron {
@@ -222,30 +222,30 @@
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 10;
+        z-index: 9;
     }
     
     .dropdown-menu {
         position: absolute;
         top: calc(100% + 4px);
-        right: 0;
+        left: 0;
         background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-        z-index: 20;
         min-width: 200px;
         max-height: 300px;
         overflow-y: auto;
+        z-index: 10;
     }
     
     .dropdown-item {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 12px;
         width: 100%;
-        padding: 8px 12px;
-        background: transparent;
+        padding: 10px 16px;
+        background: none;
         border: none;
         cursor: pointer;
         font-size: 14px;
@@ -255,25 +255,26 @@
     }
     
     .dropdown-item:hover {
-        background: #f3f4f6;
+        background: #f9fafb;
     }
     
     .checkbox {
         width: 16px;
         height: 16px;
-        border: 1px solid #d1d5db;
-        border-radius: 3px;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: white;
-        color: #3b82f6;
+        color: #10b981;
     }
     
     .partial-check {
-        font-size: 16px;
+        font-size: 18px;
         line-height: 1;
-        color: #3b82f6;
+        color: #10b981;
+    }
+    
+    .service-label {
+        font-weight: 500;
     }
     
     .dropdown-divider {
