@@ -540,7 +540,8 @@ func (a *App) checkForTriggeredIncidents() {
 
 	// Get selected services to filter notifications
 	a.mu.RLock()
-	selectedServices := append([]string{}, a.selectedServices...)
+	selectedServices := make([]string, len(a.selectedServices))
+	copy(selectedServices, a.selectedServices)
 	a.mu.RUnlock()
 
 	// Use dedicated mutex for lastIncidents
