@@ -5,11 +5,13 @@
     
     export let type: 'open' | 'resolved';
     export let searchQuery: string = '';
+    export let sortBy: 'time' | 'service' | 'alerts' = 'time';
     
     type IncidentData = database.IncidentData;
     
     $: incidents = type === 'open' ? $openIncidents : $resolvedIncidents;
     $: filteredIncidents = filterIncidents(incidents, searchQuery);
+    $: sortedIncidents = sortIncidents(filteredIncidents, sortBy);
     $: isActive = $activeTab === type;
     
     function filterIncidents(incidentsList: IncidentData[], query: string): IncidentData[] {
@@ -17,26 +19,39 @@
         
         const lowerQuery = query.toLowerCase().trim();
         return incidentsList.filter((incident: IncidentData) => {
-            // Search in title
             if (incident.title?.toLowerCase().includes(lowerQuery)) return true;
-            
-            // Search in service name
             if (incident.service_summary?.toLowerCase().includes(lowerQuery)) return true;
-            
-            // Search in incident ID
             if (incident.incident_id?.toLowerCase().includes(lowerQuery)) return true;
-            
-            // Search in incident number
             if (incident.incident_number?.toString().includes(lowerQuery)) return true;
-            
-            // Search in status
             if (incident.status?.toLowerCase().includes(lowerQuery)) return true;
-            
-            // Search in urgency
-            if (incident.urgency?.toLowerCase().includes(lowerQuery)) return true;
-            
             return false;
         });
+    }
+    
+    function sortIncidents(incidentsList: IncidentData[], sortOption: string): IncidentData[] {
+        const sorted = [...incidentsList];
+        
+        switch (sortOption) {
+            case 'service':
+                return sorted.sort((a, b) => {
+                    const serviceA = a.service_summary || '';
+                    const serviceB = b.service_summary || '';
+                    return serviceA.localeCompare(serviceB);
+                });
+            case 'alerts':
+                return sorted.sort((a, b) => {
+                    const alertsA = a.alert_count || 0;
+                    const alertsB = b.alert_count || 0;
+                    return alertsB - alertsA;
+                });
+            case 'time':
+            default:
+                return sorted.sort((a, b) => {
+                    const timeA = new Date(a.created_at).getTime();
+                    const timeB = new Date(b.created_at).getTime();
+                    return timeB - timeA;
+                });
+        }
     }
 </script>
 
@@ -47,7 +62,7 @@
                 <div class="spinner"></div>
                 <p>Loading incidents...</p>
             </div>
-        {:else if filteredIncidents.length === 0}
+        {:else if sortedIncidents.length === 0}
             <div class="empty-state">
                 {#if searchQuery}
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -79,10 +94,10 @@
             <div class="incidents-list">
                 {#if searchQuery}
                     <div class="search-results-header">
-                        Found {filteredIncidents.length} {type} incident{filteredIncidents.length !== 1 ? 's' : ''} matching "{searchQuery}"
+                        Found {sortedIncidents.length} {type} incident{sortedIncidents.length !== 1 ? 's' : ''} matching "{searchQuery}"
                     </div>
                 {/if}
-                {#each filteredIncidents as incident (incident.incident_id)}
+                {#each sortedIncidents as incident (incident.incident_id)}
                     <IncidentCard {incident} showAssignee={type === 'open'} />
                 {/each}
             </div>
