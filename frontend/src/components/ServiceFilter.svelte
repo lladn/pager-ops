@@ -6,7 +6,6 @@
         loadResolvedIncidents } from '../stores/incidents';
     import { SetSelectedServices } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
-    import { getServiceColor } from '../lib/serviceColors';
     
     let isOpen = false;
     let filterText = 'All Services';
@@ -165,7 +164,7 @@
                                 <span class="partial-check">−</span>
                             {/if}
                         </span>
-                        <span class="service-label" style="color: {getServiceColor(service.name)}">{service.name}</span>
+                        <span>{service.name}</span>
                     </button>
                 {/each}
             {:else}
@@ -273,9 +272,6 @@
         color: #10b981;
     }
     
-    .service-label {
-        font-weight: 500;
-    }
     
     .dropdown-divider {
         height: 1px;
