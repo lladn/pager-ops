@@ -56,13 +56,15 @@
     }
     
     .app-title {
-        font-size: 14px;
-        font-style: italic;
-        font-weight: 500;
-        color: #2c2c2c;
-        margin: 0;
-        letter-spacing: -0.2px;
-    }
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c2c2c;
+    margin: 0;
+    letter-spacing: -0.2px;
+    white-space: nowrap;
+}
+
     
     .toolbar-right {
         display: flex;
