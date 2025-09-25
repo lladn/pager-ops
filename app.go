@@ -1243,6 +1243,43 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
+	// Filter out disabled services
+	a.mu.RLock()
+	enabledServices := []string{}
+	if a.servicesConfig != nil {
+		for _, serviceID := range serviceIDs {
+			isDisabled := false
+			for _, service := range a.servicesConfig.Services {
+				// Check if this service is disabled
+				if service.Disabled {
+					switch id := service.ID.(type) {
+					case string:
+						if id == serviceID {
+							isDisabled = true
+							break
+						}
+					case []interface{}:
+						for _, sid := range id {
+							if strID, ok := sid.(string); ok && strID == serviceID {
+								isDisabled = true
+								break
+							}
+						}
+					}
+				}
+				if isDisabled {
+					break
+				}
+			}
+			if !isDisabled {
+				enabledServices = append(enabledServices, serviceID)
+			}
+		}
+	} else {
+		enabledServices = serviceIDs
+	}
+	a.mu.RUnlock()
+
 	// Don't fetch if polling is active - just return cached data
 	a.pollMu.RLock()
 	isPolling := a.polling
@@ -1261,13 +1298,13 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	}
 
 	// If no services selected, return all
-	if len(serviceIDs) == 0 {
+	if len(enabledServices) == 0 {
 		return allIncidents, nil
 	}
 
-	// Filter by selected services
+	// Filter by enabled services only
 	serviceMap := make(map[string]bool)
-	for _, id := range serviceIDs {
+	for _, id := range enabledServices {
 		serviceMap[id] = true
 	}
 
@@ -1279,6 +1316,70 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	}
 
 	return filteredIncidents, nil
+}
+
+func (a *App) ToggleServiceDisabled(serviceID interface{}) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.servicesConfig == nil {
+		return fmt.Errorf("no services configuration loaded")
+	}
+
+	// Find and toggle the service's disabled state
+	for i := range a.servicesConfig.Services {
+		service := &a.servicesConfig.Services[i]
+		
+		// Match service by ID
+		match := false
+		switch sid := service.ID.(type) {
+		case string:
+			if id, ok := serviceID.(string); ok && sid == id {
+				match = true
+			}
+		case []interface{}:
+			if idStr, ok := serviceID.(string); ok {
+				for _, s := range sid {
+					if str, ok := s.(string); ok && str == idStr {
+						match = true
+						break
+					}
+				}
+			} else if idArr, ok := serviceID.([]interface{}); ok {
+				// Compare arrays
+				if len(sid) == len(idArr) {
+					match = true
+					for j, v := range sid {
+						if str1, ok1 := v.(string); ok1 {
+							if str2, ok2 := idArr[j].(string); ok2 {
+								if str1 != str2 {
+									match = false
+									break
+								}
+							} else {
+								match = false
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if match {
+			service.Disabled = !service.Disabled
+			a.logger.Info(fmt.Sprintf("Service %s disabled state: %v", service.Name, service.Disabled))
+			
+			// Trigger immediate refresh
+			go a.fetchAndUpdateIncidents()
+			
+			// Emit event to update UI
+			runtime.EventsEmit(a.ctx, "services-config-updated")
+			return nil
+		}
+	}
+
+	return fmt.Errorf("service not found")
 }
 
 func (a *App) GetResolvedIncidents(
