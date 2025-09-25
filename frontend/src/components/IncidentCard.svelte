@@ -1,7 +1,7 @@
 <!-- frontend/src/components/IncidentCard.svelte -->
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
-    import { formatTime, getUrgency } from '../stores/incidents';
+    import { formatTime } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     
     type IncidentData = database.IncidentData;

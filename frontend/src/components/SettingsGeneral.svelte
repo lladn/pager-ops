@@ -1,138 +1,124 @@
 <script lang="ts">
-    import { notificationConfig, availableSounds, loadNotificationConfig, loadAvailableSounds } from '../stores/notifications';
     import { 
-        ConfigureAPIKey, GetAPIKey, GetFilterByUser, SetFilterByUser, 
+        notificationConfig, 
+        availableSounds, 
+        loadNotificationConfig, 
+        loadAvailableSounds } from '../stores/notifications';
+    import { 
+        ConfigureAPIKey, GetAPIKey, 
+        GetFilterByUser, SetFilterByUser, 
         SetNotificationEnabled, SetNotificationSound, TestNotificationSound, 
-        SnoozeNotificationSound, UnsnoozeNotificationSound, IsNotificationSnoozed
+        SnoozeNotificationSound, UnsnoozeNotificationSound, IsNotificationSnoozed, 
+        SetBrowserRedirect, GetBrowserRedirect
     } from '../../wailsjs/go/main/App';
     import { onMount } from 'svelte';
     
-    export let errorMessage: string = '';
-    export let successMessage: string = '';
+    export let errorMessage = '';
+    export let successMessage = '';
     
     let apiKey = '';
     let filterByUser = true;
     let notificationSnoozed = false;
-    let selectedSound = 'default';
     let showSoundDropdown = false;
+    let browserRedirect = false;
     
     onMount(async () => {
-        await loadApiKey();
-        await loadFilterState();
+        try {
+            apiKey = await GetAPIKey();
+        } catch (err) {
+            console.error('Failed to get API key:', err);
+        }
+        
+        try {
+            filterByUser = await GetFilterByUser();
+        } catch (err) {
+            console.error('Failed to get filter setting:', err);
+        }
+        
         await loadNotificationConfig();
         await loadAvailableSounds();
-        await checkSnoozeStatus();
-    });
-    
-    async function checkSnoozeStatus() {
+        
         try {
             notificationSnoozed = await IsNotificationSnoozed();
         } catch (err) {
-            notificationSnoozed = false;
+            console.error('Failed to get snooze status:', err);
         }
-    }
-    
-    async function loadApiKey() {
+        
         try {
-            const key = await GetAPIKey();
-            apiKey = key || '';
+            browserRedirect = await GetBrowserRedirect();
         } catch (err) {
-            apiKey = '';
+            console.error('Failed to get browser redirect setting:', err);
         }
-    }
-    
-    async function loadFilterState() {
-        try {
-            const state = await GetFilterByUser();
-            filterByUser = state;
-        } catch (err) {
-            filterByUser = true;
-            try {
-                await SetFilterByUser(true);
-            } catch (e) {
-                // Ignore error on setting default
-            }
-        }
-    }
+    });
     
     async function saveApiKey() {
         errorMessage = '';
         successMessage = '';
         
-        if (!apiKey.trim()) {
-            errorMessage = 'API Key is required';
+        if (!apiKey) {
+            errorMessage = 'Please enter an API key';
             return;
         }
         
         try {
             await ConfigureAPIKey(apiKey);
-            successMessage = 'API Key saved successfully';
-            setTimeout(() => successMessage = '', 3000);
+            successMessage = 'API key saved successfully';
+            setTimeout(() => {
+                successMessage = '';
+            }, 3000);
         } catch (err) {
-            errorMessage = 'Failed to save API Key';
+            errorMessage = 'Failed to save API key: ' + err;
         }
     }
     
-    async function toggleAssignedFilter() {
+    async function toggleFilterByUser() {
+        filterByUser = !filterByUser;
         try {
-            filterByUser = !filterByUser;
             await SetFilterByUser(filterByUser);
-            successMessage = `Filter set to show ${filterByUser ? 'assigned incidents only' : 'all incidents'}`;
-            setTimeout(() => successMessage = '', 3000);
         } catch (err) {
-            errorMessage = 'Failed to update filter setting';
+            console.error('Failed to update filter setting:', err);
+            filterByUser = !filterByUser; // Revert on error
         }
     }
     
     async function toggleNotifications() {
+        const newState = !$notificationConfig.enabled;
+        await SetNotificationEnabled(newState);
+        await loadNotificationConfig();
+    }
+    
+    async function toggleBrowserRedirect() {
+        browserRedirect = !browserRedirect;
         try {
-            const newState = !$notificationConfig.enabled;
-            await SetNotificationEnabled(newState);
-            await loadNotificationConfig();
-            successMessage = `Notifications ${newState ? 'enabled' : 'disabled'}`;
-            setTimeout(() => successMessage = '', 3000);
+            await SetBrowserRedirect(browserRedirect);
         } catch (err) {
-            errorMessage = 'Failed to toggle notifications';
+            console.error('Failed to update browser redirect setting:', err);
+            browserRedirect = !browserRedirect; // Revert on error
         }
     }
     
     async function selectSound(sound: string) {
-        selectedSound = sound;
         showSoundDropdown = false;
-        
-        try {
-            await SetNotificationSound(sound);
-            await loadNotificationConfig();
-            successMessage = 'Notification sound updated';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to update notification sound';
-        }
+        await SetNotificationSound(sound);
+        await loadNotificationConfig();
     }
     
     async function testSound() {
         try {
             await TestNotificationSound();
         } catch (err) {
-            errorMessage = 'Failed to test sound';
+            console.error('Failed to test sound:', err);
         }
     }
     
-    async function toggleSnooze() {
-        try {
-            if (notificationSnoozed) {
-                await UnsnoozeNotificationSound();
-                notificationSnoozed = false;
-                successMessage = 'Sound notifications resumed';
-            } else {
-                await SnoozeNotificationSound(30);
-                notificationSnoozed = true;
-                successMessage = 'Sound snoozed for 30 minutes';
-            }
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to toggle snooze';
-        }
+    async function snoozeSound() {
+        await SnoozeNotificationSound(15); // 15 minutes default
+        notificationSnoozed = true;
+    }
+    
+    async function unsnoozeSound() {
+        await UnsnoozeNotificationSound();
+        notificationSnoozed = false;
     }
     
     function toggleSoundDropdown() {
@@ -183,7 +169,7 @@
             <button 
                 class="toggle-button"
                 class:active={filterByUser}
-                on:click={toggleAssignedFilter}
+                on:click={toggleFilterByUser}
             >
                 <span class="toggle-slider"></span>
             </button>
@@ -194,8 +180,8 @@
     <div class="settings-section">
         <div class="toggle-setting">
             <div>
-                <h3>Enable Notifications</h3>
-                <p class="setting-description">Get sound notifications for new incidents</p>
+                <h3>Notifications</h3>
+                <p class="setting-description">Show desktop notifications for triggered incidents</p>
             </div>
             <button 
                 class="toggle-button"
@@ -208,76 +194,68 @@
         
         {#if $notificationConfig.enabled}
             <div class="notification-settings">
-                <!-- Custom Sound Selector with Dropdown UI -->
-                <div class="sound-selector-container">
-                    <label for="notification-sound">Notification Sound</label>
-                    <div class="sound-controls">
-                        <div class="custom-dropdown">
-                            <button 
-                                class="dropdown-toggle"
-                                on:click|stopPropagation={toggleSoundDropdown}
-                                aria-expanded={showSoundDropdown}
-                            >
-                                <span class="dropdown-value">
-                                    {selectedSound === 'default' ? 'Default' : selectedSound}
-                                </span>
-                                <svg class="dropdown-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-                                    <path d="M2 4L6 8L10 4" />
-                                </svg>
-                            </button>
-                            
-                            {#if showSoundDropdown}
-                                <div class="dropdown-menu">
-                                    {#each $availableSounds as sound}
-                                        <button 
-                                            class="dropdown-item"
-                                            class:selected={selectedSound === sound}
-                                            on:click={() => selectSound(sound)}
-                                        >
-                                            {#if selectedSound === sound}
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                                </svg>
-                                            {/if}
-                                            <span class="sound-name">
-                                                {sound === 'default' ? 'Default' : sound}
-                                            </span>
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                        </div>
-                        
-                        <button class="btn-test" on:click={testSound}>
+                <!-- Sound Selector -->
+                <div class="sound-setting">
+                    <div class="sound-selector-container">
+                        <button class="sound-selector" on:click={toggleSoundDropdown}>
+                            <span>{selectedSound}</span>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                                <polyline points="6 9 12 15 18 9"></polyline>
                             </svg>
-                            Test
                         </button>
+                        
+                        {#if showSoundDropdown}
+                            <div class="sound-dropdown">
+                                {#each $availableSounds as sound}
+                                    <button 
+                                        class="sound-option"
+                                        class:selected={selectedSound === sound}
+                                        on:click={() => selectSound(sound)}
+                                    >
+                                        {sound}
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
                     </div>
+                    
+                    <button class="btn btn-secondary" on:click={testSound}>
+                        Test Sound
+                    </button>
                 </div>
                 
-                <div class="snooze-controls">
+                <!-- Browser Redirect Toggle - Now inside notification settings -->
+                <div class="toggle-setting browser-redirect-setting">
+                    <div>
+                        <h4>Auto-Open in Browser</h4>
+                        <p class="setting-description">Automatically open triggered incidents in your browser</p>
+                    </div>
                     <button 
-                        class="btn-snooze"
-                        class:snoozed={notificationSnoozed}
-                        on:click={toggleSnooze}
+                        class="toggle-button"
+                        class:active={browserRedirect}
+                        on:click={toggleBrowserRedirect}
+                    >
+                        <span class="toggle-slider"></span>
+                    </button>
+                </div>
+                
+                <!-- Snooze Button -->
+                <div class="snooze-setting">
+                    <button 
+                        class="btn btn-secondary snooze-button"
+                        on:click={notificationSnoozed ? unsnoozeSound : snoozeSound}
                     >
                         {#if notificationSnoozed}
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                <line x1="22" y1="9" x2="22" y2="15"></line>
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
                             </svg>
-                            Resume Sound
+                            Unsnooze
                         {:else}
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                <line x1="23" y1="9" x2="17" y2="15"></line>
-                                <line x1="17" y1="9" x2="23" y2="15"></line>
+                                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                             </svg>
-                            Snooze Sound (30 min)
+                            Snooze 15 min
                         {/if}
                     </button>
                     <p class="snooze-description">
@@ -312,6 +290,13 @@
         font-weight: 600;
         color: #111827;
         margin: 0 0 8px 0;
+    }
+    
+    .settings-section h4 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #374151;
+        margin: 0 0 4px 0;
     }
 
     .api-key-controls {
@@ -377,69 +362,42 @@
         border-top: 1px solid #f3f4f6;
     }
     
-    .sound-selector-container {
-        margin-bottom: 16px;
+    .browser-redirect-setting {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid #f3f4f6;
     }
     
-    .sound-selector-container label {
-        display: block;
-        margin-bottom: 8px;
-        font-size: 13px;
-        font-weight: 500;
-        color: #374151;
-    }
-    
-    .sound-controls {
+    .sound-setting {
         display: flex;
         gap: 8px;
         align-items: center;
     }
     
-    .custom-dropdown {
+    .sound-selector-container {
         position: relative;
         flex: 1;
     }
     
-    .dropdown-toggle {
+    .sound-selector {
         width: 100%;
         padding: 8px 12px;
-        background: white;
         border: 1px solid #d1d5db;
         border-radius: 6px;
-        font-size: 14px;
-        text-align: left;
+        background: white;
         cursor: pointer;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        transition: all 0.2s;
+        font-size: 14px;
+        color: #374151;
     }
     
-    .dropdown-toggle:hover {
+    .sound-selector:hover {
         border-color: #9ca3af;
     }
     
-    .dropdown-toggle:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    .dropdown-value {
-        color: #111827;
-        font-weight: 500;
-    }
-    
-    .dropdown-arrow {
-        transition: transform 0.2s;
-        color: #6b7280;
-    }
-    
-    .dropdown-toggle[aria-expanded="true"] .dropdown-arrow {
-        transform: rotate(180deg);
-    }
-    
-    .dropdown-menu {
+    .sound-dropdown {
         position: absolute;
         top: calc(100% + 4px);
         left: 0;
@@ -447,121 +405,52 @@
         background: white;
         border: 1px solid #d1d5db;
         border-radius: 6px;
-        box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-        z-index: 10;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        z-index: 100;
         max-height: 200px;
         overflow-y: auto;
     }
     
-    .dropdown-item {
+    .sound-option {
         width: 100%;
         padding: 8px 12px;
-        background: none;
+        background: transparent;
         border: none;
         text-align: left;
         cursor: pointer;
-        transition: background 0.15s;
-        display: flex;
-        align-items: center;
-        gap: 8px;
         font-size: 14px;
         color: #374151;
+        transition: background 0.1s;
     }
     
-    .dropdown-item:hover {
-        background: #f3f4f6;
+    .sound-option:hover {
+        background: #f9fafb;
     }
     
-    .dropdown-item.selected {
+    .sound-option.selected {
         background: #eff6ff;
-        color: #3b82f6;
+        color: #2563eb;
         font-weight: 500;
     }
     
-    .dropdown-item svg {
-        width: 14px;
-        height: 14px;
-        flex-shrink: 0;
-        color: #3b82f6;
-    }
-    
-    .dropdown-item:not(.selected) svg {
-        visibility: hidden;
-        width: 14px;
-    }
-    
-    .sound-name {
-        flex: 1;
-    }
-    
-    .btn-test {
-        padding: 8px 16px;
-        background: #f3f4f6;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-        color: #374151;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    
-    .btn-test:hover {
-        background: #e5e7eb;
-        border-color: #9ca3af;
-    }
-    
-    .btn-test svg {
-        width: 16px;
-        height: 16px;
-    }
-    
-    .snooze-controls {
+    .snooze-setting {
         margin-top: 12px;
     }
     
-    .btn-snooze {
-        padding: 8px 14px;
-        background: #fef3c7;
-        border: 1px solid #fcd34d;
-        color: #78350f;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-        display: inline-flex;
+    .snooze-button {
+        display: flex;
         align-items: center;
         gap: 6px;
     }
     
-    .btn-snooze:hover {
-        background: #fed7aa;
-        border-color: #fb923c;
-    }
-    
-    .btn-snooze.snoozed {
-        background: #dcfce7;
-        border: 1px solid #86efac;
-        color: #14532d;
-    }
-    
-    .btn-snooze.snoozed:hover {
-        background: #bbf7d0;
-        border-color: #4ade80;
-    }
-    
     .snooze-description {
-        font-size: 11px;
+        font-size: 12px;
         color: #6b7280;
-        margin: 8px 0 0 0;
+        margin: 4px 0 0 0;
     }
     
     .btn {
-        padding: 10px 16px;
+        padding: 8px 16px;
         border: none;
         border-radius: 6px;
         font-size: 14px;
@@ -571,11 +460,20 @@
     }
     
     .btn-primary {
-        background: #3b82f6;
+        background: #2563eb;
         color: white;
     }
     
     .btn-primary:hover {
-        background: #2563eb;
+        background: #1d4ed8;
+    }
+    
+    .btn-secondary {
+        background: #f3f4f6;
+        color: #374151;
+    }
+    
+    .btn-secondary:hover {
+        background: #e5e7eb;
     }
 </style>

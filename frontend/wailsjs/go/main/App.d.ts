@@ -10,6 +10,8 @@ export function GetAPIKey():Promise<string>;
 
 export function GetAvailableSounds():Promise<Array<string>>;
 
+export function GetBrowserRedirect():Promise<boolean>;
+
 export function GetFilterByUser():Promise<boolean>;
 
 export function GetNotificationConfig():Promise<main.NotificationConfig>;
@@ -31,6 +33,8 @@ export function IsNotificationSnoozed():Promise<boolean>;
 export function ReadFile(arg1:string):Promise<string>;
 
 export function RemoveServicesConfig():Promise<void>;
+
+export function SetBrowserRedirect(arg1:boolean):Promise<void>;
 
 export function SetFilterByUser(arg1:boolean):Promise<void>;
 
