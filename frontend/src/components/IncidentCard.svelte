@@ -13,17 +13,18 @@
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     
     function getStatusColor(status: string): string {
-        switch (status) {
-            case 'triggered':
-                return 'bg-red-500';
-            case 'acknowledged':
-                return 'bg-yellow-500';
-            case 'resolved':
-                return 'bg-green-500';
-            default:
-                return 'bg-gray-500';
-        }
+    switch (status) {
+        case 'triggered':
+            return '#ef4444'; // red
+        case 'acknowledged':
+            return '#f59e0b'; // amber / orange
+        case 'resolved':
+            return '#10b981'; // green
+        default:
+            return '#6b7280'; // gray
     }
+}
+
     
     function getStatusLabel(status: string): string {
         switch (status) {
@@ -79,7 +80,7 @@
     <div class="incident-header">
         <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
         <div class="incident-badges">
-            <span class="status-badge {statusColor}">
+            <span class="status-badge outlined" style="color: {statusColor}; border-color: {statusColor}">
                 {#if incident.status === 'triggered'}
                     <span class="status-icon">⚠</span>
                 {:else if incident.status === 'acknowledged'}
@@ -183,23 +184,25 @@
     .status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        padding: 4px 10px;
-        border-radius: 16px;
-        color: white;
-        font-size: 12px;
-        font-weight: 500;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 600;
         white-space: nowrap;
+        background: none;
+    }
+
+/* outlined variant */
+    .status-badge.outlined {
+        background: white;            
+        border: 1px solid transparent; 
+        padding: 2px 8px;
+        border-radius: 6px;
     }
     
     .status-icon {
         font-size: 11px;
     }
     
-    .bg-red-500 { background-color: #ef4444; }
-    .bg-yellow-500 { background-color: #f59e0b; }
-    .bg-green-500 { background-color: #10b981; }
-    .bg-gray-500 { background-color: #6b7280; }
     
     .incident-details {
         display: flex;
