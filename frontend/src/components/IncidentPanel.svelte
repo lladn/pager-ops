@@ -1,5 +1,9 @@
 <script lang="ts">
-    import { openIncidents, resolvedIncidents, activeTab, loading } from '../stores/incidents';
+    import { 
+        openIncidents, 
+        resolvedIncidents, 
+        activeTab, 
+        loading } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
     import type { database } from '../../wailsjs/go/models';
     

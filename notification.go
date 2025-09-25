@@ -5,16 +5,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
 type NotificationConfig struct {
-	Enabled     bool      `json:"enabled"`
-	Sound       string    `json:"sound"`
-	Snoozed     bool      `json:"snoozed"`
-	SnoozeUntil time.Time `json:"snoozeUntil"`
+	Enabled         bool      `json:"enabled"`
+	Sound           string    `json:"sound"`
+	Snoozed         bool      `json:"snoozed"`
+	SnoozeUntil     time.Time `json:"snoozeUntil"`
+	BrowserRedirect bool      `json:"browserRedirect"`
 }
 
 // SoundRequest represents a sound playback request
@@ -25,15 +27,25 @@ type SoundRequest struct {
 	ResultChan  chan error
 }
 
+// BrowserRedirectRequest represents a browser redirect request
+type BrowserRedirectRequest struct {
+	URL        string
+	IncidentID string
+}
+
 // NotificationManager manages notifications and sounds
 type NotificationManager struct {
-	config      NotificationConfig
-	mu          sync.RWMutex
-	logger      *Logger
-	soundQueue  chan SoundRequest
-	rateLimiter *RateLimiter
-	shutdownCh  chan struct{}
-	wg          sync.WaitGroup
+	config             NotificationConfig
+	mu                 sync.RWMutex
+	logger             *Logger
+	soundQueue         chan SoundRequest
+	redirectQueue      chan BrowserRedirectRequest
+	rateLimiter        *RateLimiter
+	redirectRateLimiter *RateLimiter
+	shutdownCh         chan struct{}
+	wg                 sync.WaitGroup
+	processedIncidents map[string]time.Time
+	processedMu        sync.RWMutex
 }
 
 // RateLimiter implements a simple rate limiting mechanism
@@ -48,8 +60,17 @@ type RateLimiter struct {
 
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		minInterval: 2 * time.Second,        // Minimum 2 seconds between notifications
-		burstWindow: 30 * time.Second,       // Window for burst detection
+		minInterval: 2 * time.Second,
+		burstWindow: 30 * time.Second,
+		burstCount:  0,
+		windowStart: time.Now(),
+	}
+}
+
+func NewRedirectRateLimiter() *RateLimiter {
+	return &RateLimiter{
+		minInterval: 3 * time.Second,  // Minimum 3 seconds between browser opens
+		burstWindow: 60 * time.Second, // Window for burst detection
 		burstCount:  0,
 		windowStart: time.Now(),
 	}
@@ -72,7 +93,7 @@ func (rl *RateLimiter) Allow() bool {
 		return false
 	}
 
-	// Check burst limit (max 5 notifications in 30 seconds)
+	// Check burst limit (max 5 notifications in window)
 	if rl.burstCount >= 5 {
 		return false
 	}
@@ -85,19 +106,28 @@ func (rl *RateLimiter) Allow() bool {
 func NewNotificationManager(logger *Logger) *NotificationManager {
 	nm := &NotificationManager{
 		config: NotificationConfig{
-			Enabled: true,
-			Sound:   "default",
-			Snoozed: false,
+			Enabled:         true,
+			Sound:           "default",
+			Snoozed:         false,
+			BrowserRedirect: false, // Default OFF
 		},
-		logger:      logger,
-		soundQueue:  make(chan SoundRequest, 100), // Buffered channel
-		rateLimiter: NewRateLimiter(),
-		shutdownCh:  make(chan struct{}),
+		logger:              logger,
+		soundQueue:          make(chan SoundRequest, 100),
+		redirectQueue:       make(chan BrowserRedirectRequest, 100),
+		rateLimiter:         NewRateLimiter(),
+		redirectRateLimiter: NewRedirectRateLimiter(),
+		shutdownCh:          make(chan struct{}),
+		processedIncidents:  make(map[string]time.Time),
 	}
 
-	// Start the sound queue worker
-	nm.wg.Add(1)
+	// Start the workers
+	nm.wg.Add(2)
 	go nm.soundWorker()
+	go nm.redirectWorker()
+
+	// Start cleanup worker for processed incidents
+	nm.wg.Add(1)
+	go nm.cleanupWorker()
 
 	return nm
 }
@@ -130,6 +160,88 @@ func (nm *NotificationManager) soundWorker() {
 	}
 }
 
+// redirectWorker processes browser redirect requests with rate limiting
+func (nm *NotificationManager) redirectWorker() {
+	defer nm.wg.Done()
+	
+	for {
+		select {
+		case <-nm.shutdownCh:
+			return
+		case req := <-nm.redirectQueue:
+			// Check if we've already processed this incident recently
+			nm.processedMu.RLock()
+			lastProcessed, exists := nm.processedIncidents[req.IncidentID]
+			nm.processedMu.RUnlock()
+			
+			// Skip if processed within last 5 minutes
+			if exists && time.Since(lastProcessed) < 5*time.Minute {
+				continue
+			}
+			
+			// Apply rate limiting
+			if !nm.redirectRateLimiter.Allow() {
+				nm.logger.Warn(fmt.Sprintf("Browser redirect rate limited for incident %s", req.IncidentID))
+				continue
+			}
+			
+			// Open URL in browser
+			if err := nm.openInBrowser(req.URL); err != nil {
+				nm.logger.Error(fmt.Sprintf("Failed to open browser for incident %s: %v", req.IncidentID, err))
+			} else {
+				nm.logger.Info(fmt.Sprintf("Opened browser for incident %s", req.IncidentID))
+				
+				// Mark as processed
+				nm.processedMu.Lock()
+				nm.processedIncidents[req.IncidentID] = time.Now()
+				nm.processedMu.Unlock()
+			}
+		}
+	}
+}
+
+// cleanupWorker removes old entries from processedIncidents map
+func (nm *NotificationManager) cleanupWorker() {
+	defer nm.wg.Done()
+	
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-nm.shutdownCh:
+			return
+		case <-ticker.C:
+			nm.processedMu.Lock()
+			now := time.Now()
+			for id, timestamp := range nm.processedIncidents {
+				if now.Sub(timestamp) > 30*time.Minute {
+					delete(nm.processedIncidents, id)
+				}
+			}
+			nm.processedMu.Unlock()
+		}
+	}
+}
+
+// openInBrowser opens a URL in the default browser
+func (nm *NotificationManager) openInBrowser(url string) error {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+	
+	return cmd.Start()
+}
+
 // Shutdown gracefully stops the notification manager
 func (nm *NotificationManager) Shutdown() {
 	close(nm.shutdownCh)
@@ -148,6 +260,15 @@ func (nm *NotificationManager) SetEnabled(enabled bool) {
 	nm.config.Enabled = enabled
 	if nm.logger != nil {
 		nm.logger.Info(fmt.Sprintf("Notifications enabled: %v", enabled))
+	}
+}
+
+func (nm *NotificationManager) SetBrowserRedirect(enabled bool) {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.config.BrowserRedirect = enabled
+	if nm.logger != nil {
+		nm.logger.Info(fmt.Sprintf("Browser redirect enabled: %v", enabled))
 	}
 }
 
@@ -214,7 +335,6 @@ func (nm *NotificationManager) IsSnoozeActive() bool {
 	return true
 }
 
-
 func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL, serviceName string) error {
 	nm.mu.RLock()
 	config := nm.config
@@ -232,8 +352,8 @@ func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL
 
 	// Use terminal-notifier for macOS notifications with URL support
 	args := []string{
-		"-title", serviceSummary,  // Service summary as title
-		"-message", message,        // Incident title as message  
+		"-title", serviceSummary,
+		"-message", message,
 	}
 
 	// Add URL if provided - clicking notification will open the incident
@@ -245,7 +365,7 @@ func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL
 	err := cmd.Run()
 	if err != nil && nm.logger != nil {
 		// Fallback to osascript if terminal-notifier is not installed
-		fallbackCmd := exec.Command("osascript", "-e", 
+		fallbackCmd := exec.Command("osascript", "-e",
 			fmt.Sprintf(`display notification "%s" with title "%s"`, message, serviceSummary))
 		if fallbackErr := fallbackCmd.Run(); fallbackErr != nil {
 			nm.logger.Error(fmt.Sprintf("Failed to send notification: %v (fallback also failed: %v)", err, fallbackErr))
@@ -257,7 +377,7 @@ func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL
 	if !nm.IsSnoozeActive() {
 		soundReq := SoundRequest{
 			Type:        "default",
-			ServiceName: serviceName, // Use the configured service name
+			ServiceName: serviceName,
 		}
 		
 		if config.Sound != "default" {
@@ -274,7 +394,46 @@ func (nm *NotificationManager) SendNotification(serviceSummary, message, htmlURL
 		}
 	}
 
+	// Queue browser redirect if enabled
+	if config.BrowserRedirect && htmlURL != "" {
+		redirectReq := BrowserRedirectRequest{
+			URL:        htmlURL,
+			IncidentID: serviceName, // Use service name as a simple ID for now
+		}
+		
+		// Non-blocking send to queue
+		select {
+		case nm.redirectQueue <- redirectReq:
+			// Queued successfully
+		default:
+			nm.logger.Warn("Redirect queue full, skipping browser redirect")
+		}
+	}
+
 	return nil
+}
+
+func (nm *NotificationManager) QueueBrowserRedirect(incidentID, htmlURL string) {
+	nm.mu.RLock()
+	enabled := nm.config.BrowserRedirect
+	nm.mu.RUnlock()
+	
+	if !enabled || htmlURL == "" {
+		return
+	}
+	
+	redirectReq := BrowserRedirectRequest{
+		URL:        htmlURL,
+		IncidentID: incidentID,
+	}
+	
+	// Non-blocking send to queue
+	select {
+	case nm.redirectQueue <- redirectReq:
+		// Queued successfully
+	default:
+		nm.logger.Warn(fmt.Sprintf("Redirect queue full for incident %s", incidentID))
+	}
 }
 
 // executeDefaultSound uses the say command with the configured service name
