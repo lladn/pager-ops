@@ -114,6 +114,10 @@ export function TestNotificationSound() {
   return window['go']['main']['App']['TestNotificationSound']();
 }
 
+export function ToggleServiceDisabled(arg1) {
+  return window['go']['main']['App']['ToggleServiceDisabled'](arg1);
+}
+
 export function UnsnoozeNotificationSound() {
   return window['go']['main']['App']['UnsnoozeNotificationSound']();
 }

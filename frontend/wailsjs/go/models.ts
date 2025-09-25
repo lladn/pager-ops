@@ -104,6 +104,7 @@ export namespace store {
 	export class ServiceConfig {
 	    id: any;
 	    name: string;
+	    disabled?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServiceConfig(source);
@@ -113,6 +114,7 @@ export namespace store {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.disabled = source["disabled"];
 	    }
 	}
 	export class ServicesConfig {
