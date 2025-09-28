@@ -4,8 +4,9 @@ import "time"
 
 // ServiceConfig represents a single service configuration
 type ServiceConfig struct {
-	ID   interface{} `json:"id"`
-	Name string      `json:"name"`
+	ID       interface{} `json:"id"`
+	Name     string      `json:"name"`
+	Disabled bool        `json:"disabled,omitempty"` // Added to track disabled state
 }
 
 // ServicesConfig represents the overall services configuration
