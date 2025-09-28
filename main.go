@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -13,12 +15,28 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+func GetVersion(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim spaces and newlines just in case
+	version := strings.TrimSpace(string(data))
+	return version, nil
+}
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	version, err := GetVersion("VERSION")
+	if err != nil {
+		version = "Missing Version file"
+	}
+
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:             "PagerOps",
 		Width:             600,
 		Height:            800,
@@ -46,8 +64,10 @@ func main() {
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
-				Title:   "PagerOps",
-				Message: "Monitor and manage your Incidents\n \n Copyright © 2025.9.4 Louie Ladiona \n Version: 1.0.0-beta.4",
+				Title: "PagerOps",
+				Message: "Monitor and manage your Incidents\n \n" +
+					"Copyright © 2025.9.4 Louie Ladiona \n" +
+					"Version: " + version,
 			},
 		},
 	})
