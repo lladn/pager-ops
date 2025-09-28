@@ -49,7 +49,7 @@
                 disabled: false
             });
             
-            //config.services.push(newService);
+            config.services.push(newService);
             
             const updatedConfig = JSON.stringify(config, null, 2);
             await UploadServicesConfig(updatedConfig);
