@@ -1,6 +1,6 @@
 <script lang="ts">
-    import { servicesConfig, loadServicesConfig } from '../stores/incidents';
-    import { UploadServicesConfig, RemoveServicesConfig } from '../../wailsjs/go/main/App';
+    import { servicesConfig, loadServicesConfig, loadOpenIncidents } from '../stores/incidents';
+    import { UploadServicesConfig, RemoveServicesConfig, ToggleServiceDisabled } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     import { onMount } from 'svelte';
     
@@ -45,7 +45,8 @@
             
             const newService: store.ServiceConfig = new store.ServiceConfig({
                 id: serviceIds.length === 1 ? serviceIds[0] : serviceIds,
-                name: newServiceName.trim()
+                name: newServiceName.trim(),
+                disabled: false
             });
             
             config.services.push(newService);
@@ -82,6 +83,20 @@
             setTimeout(() => successMessage = '', 3000);
         } catch (err) {
             errorMessage = 'Failed to remove service';
+        }
+    }
+    
+    async function toggleServiceDisabled(service: store.ServiceConfig) {
+        try {
+            await ToggleServiceDisabled(service.id);
+            await loadServicesConfig();
+            await loadOpenIncidents();
+            
+            const action = service.disabled ? 'enabled' : 'disabled';
+            successMessage = `Service ${service.name} ${action} for open incidents`;
+            setTimeout(() => successMessage = '', 3000);
+        } catch (err) {
+            errorMessage = err?.toString() || 'Failed to toggle service state';
         }
     }
     
@@ -133,14 +148,27 @@
         <div class="services-list">
             <h3>Configured Services</h3>
             {#each $servicesConfig.services as service}
-                <div class="service-item">
+                <div class="service-item" class:disabled={service.disabled}>
                     <div class="service-info">
                         <strong>{service.name}</strong>
                         <span class="service-id">{getServiceIdDisplay(service.id)}</span>
+                        {#if service.disabled}
+                            <span class="disabled-badge">Disabled for open incidents</span>
+                        {/if}
                     </div>
-                    <button class="btn-remove" on:click={() => removeService(service)}>
-                        Remove
-                    </button>
+                    <div class="service-actions">
+                        <button 
+                            class="btn-toggle" 
+                            class:btn-enable={service.disabled}
+                            on:click={() => toggleServiceDisabled(service)}
+                            title={service.disabled ? 'Enable for open incidents' : 'Disable for open incidents'}
+                        >
+                            {service.disabled ? 'Enable' : 'Disable'}
+                        </button>
+                        <button class="btn-remove" on:click={() => removeService(service)}>
+                            Remove
+                        </button>
+                    </div>
                 </div>
             {/each}
         </div>
@@ -228,6 +256,12 @@
         border-radius: 6px;
         margin-bottom: 8px;
         border: 1px solid #e5e7eb;
+        transition: opacity 0.2s;
+    }
+    
+    .service-item.disabled {
+        opacity: 0.7;
+        background: #f3f4f6;
     }
     
     .service-item:last-child {
@@ -249,6 +283,22 @@
         font-size: 12px;
         color: #6b7280;
         font-family: monospace;
+    }
+    
+    .disabled-badge {
+        font-size: 11px;
+        color: #991b1b;
+        background: #fee2e2;
+        padding: 2px 6px;
+        border-radius: 3px;
+        display: inline-block;
+        margin-top: 4px;
+    }
+    
+    .service-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
     }
     
     .file-input {
@@ -300,5 +350,33 @@
     .btn-remove:hover {
         background: #fecaca;
         border-color: #f87171;
+    }
+    
+    .btn-toggle {
+        padding: 6px 12px;
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fde68a;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-toggle:hover {
+        background: #fde68a;
+        border-color: #fbbf24;
+    }
+    
+    .btn-toggle.btn-enable {
+        background: #dcfce7;
+        color: #166534;
+        border-color: #bbf7d0;
+    }
+    
+    .btn-toggle.btn-enable:hover {
+        background: #bbf7d0;
+        border-color: #86efac;
     }
 </style>

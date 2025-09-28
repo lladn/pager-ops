@@ -60,6 +60,8 @@ export function StopUserPolling():Promise<void>;
 
 export function TestNotificationSound():Promise<void>;
 
+export function ToggleServiceDisabled(arg1:any):Promise<void>;
+
 export function UnsnoozeNotificationSound():Promise<void>;
 
 export function UploadServicesConfig(arg1:string):Promise<void>;
