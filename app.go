@@ -989,7 +989,7 @@ func (a *App) fetchResolvedIncidentsSince() {
 		a.logger.Info("Limiting resolved fetch to 7 days for performance")
 	}
 
-	a.logger.Info(fmt.Sprintf("Fetching resolved incidents since: %s", since.Format(time.RFC3339)))
+
 
 	resolvedOpts := store.FetchOptions{
 		ServiceIDs: selectedServices,
@@ -1046,7 +1046,6 @@ func (a *App) fetchResolvedIncidentsSince() {
 		a.latestResolvedMu.Unlock()
 	}
 
-	a.logger.Info(fmt.Sprintf("Resolved incidents update: fetched=%d, updated=%d", len(incidents), updateCount))
 	runtime.EventsEmit(a.ctx, "incidents-updated", "resolved")
 }
 
