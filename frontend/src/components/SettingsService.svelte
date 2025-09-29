@@ -49,6 +49,7 @@
                 disabled: false
             });
             
+            // @ts-ignore // This handle save services manually input
             config.services.push(newService);
             
             const updatedConfig = JSON.stringify(config, null, 2);
