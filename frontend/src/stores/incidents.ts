@@ -20,6 +20,8 @@ export const selectedServices = writable<string[]>([]);
 export const activeTab = writable<'open' | 'resolved'>('open');
 export const settingsOpen = writable(false);
 export const settingsTab = writable<'general' | 'services'>('general');
+export const panelOpen = writable(false);
+export const panelWidth = writable(320);
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
