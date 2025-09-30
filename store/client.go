@@ -188,6 +188,14 @@ func (c *Client) executeAPICall(req *APIRequest) {
 		opts := req.Options.(pagerduty.ListIncidentsOptions)
 		result, err = c.pd.ListIncidentsWithContext(req.Context, opts)
 
+	case "ListIncidentAlerts":
+		incidentID := req.Options.(string)
+		result, err = c.pd.ListIncidentAlertsWithContext(req.Context, incidentID, pagerduty.ListIncidentAlertsOptions{})
+
+	case "ListIncidentNotes":
+		incidentID := req.Options.(string)
+		result, err = c.pd.ListIncidentNotesWithContext(req.Context, incidentID)
+
 	default:
 		err = fmt.Errorf("unknown API request type: %s", req.Type)
 	}
@@ -565,6 +573,116 @@ func (c *Client) FetchIncidentsWithOptions(opts FetchOptions) ([]database.Incide
 
 	return allIncidents, nil
 }
+
+// GetIncidentAlerts fetches alerts for a specific incident through queue
+func (c *Client) GetIncidentAlerts(incidentID string) ([]IncidentAlert, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := c.queueRequest("ListIncidentAlerts", ctx, incidentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch incident alerts: %w", err)
+	}
+
+	resp, ok := result.(*pagerduty.ListAlertsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response type for alerts")
+	}
+
+	var alerts []IncidentAlert
+	for _, alert := range resp.Alerts {
+		convertedAlert := IncidentAlert{
+			ID:        alert.ID,
+			Summary:   alert.Summary,
+			Status:    alert.Status,
+			CreatedAt: alert.CreatedAt,
+		}
+
+		// Check if service exists (APIObject has ID field)
+		if alert.Service.ID != "" {
+			convertedAlert.ServiceName = alert.Service.Summary
+		}
+
+		// Extract context links from Body map if it exists
+		if alert.Body != nil {
+			// Try to extract CEF details if they exist
+			if cefDetails, ok := alert.Body["cef_details"]; ok {
+				if cefMap, ok := cefDetails.(map[string]interface{}); ok {
+					// Try to extract contexts
+					if contexts, ok := cefMap["contexts"]; ok {
+						if contextList, ok := contexts.([]interface{}); ok {
+							for _, ctx := range contextList {
+								if contextMap, ok := ctx.(map[string]interface{}); ok {
+									link := AlertLink{
+										Href: getString(contextMap, "href"),
+										Text: getString(contextMap, "text"),
+									}
+									if link.Href != "" {
+										convertedAlert.Links = append(convertedAlert.Links, link)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		alerts = append(alerts, convertedAlert)
+	}
+
+	return alerts, nil
+}
+
+// GetIncidentNotes fetches notes for a specific incident through queue
+func (c *Client) GetIncidentNotes(incidentID string) ([]IncidentNote, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := c.queueRequest("ListIncidentNotes", ctx, incidentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch incident notes: %w", err)
+	}
+
+	// The response is a slice of IncidentNote pointers
+	resp, ok := result.([]*pagerduty.IncidentNote)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response type for notes")
+	}
+
+	var notes []IncidentNote
+	for _, note := range resp {
+		if note == nil {
+			continue
+		}
+		
+		convertedNote := IncidentNote{
+			ID:        note.ID,
+			Content:   note.Content,
+			CreatedAt: note.CreatedAt,
+		}
+
+		// Check if User exists (APIObject has ID field)
+		if note.User.ID != "" {
+			convertedNote.UserName = note.User.Summary
+		}
+
+		notes = append(notes, convertedNote)
+	}
+
+	return notes, nil
+}
+
+// Helper function to safely get string from interface
+func getString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
 
 // GetAPIStats returns current API queue statistics
 func (c *Client) GetAPIStats() (totalCalls int64, failedCalls int64, pendingRequests int) {
