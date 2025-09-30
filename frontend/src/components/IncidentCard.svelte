@@ -1,8 +1,7 @@
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
-    import { formatTime } from '../stores/incidents';
+    import { formatTime, selectedIncident } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
-    import { getServiceColor } from '../lib/serviceColors';
     
     type IncidentData = database.IncidentData;
     
@@ -13,18 +12,23 @@
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     
     function getStatusColor(status: string): string {
-    switch (status) {
-        case 'triggered':
-            return '#ef4444'; // red
-        case 'acknowledged':
-            return '#f59e0b'; // amber / orange
-        case 'resolved':
-            return '#10b981'; // green
-        default:
-            return '#6b7280'; // gray
+        switch (status) {
+            case 'triggered':
+                return '#ef4444'; // red
+            case 'acknowledged':
+                return '#f59e0b'; // amber / orange
+            case 'resolved':
+                return '#10b981'; // green
+            default:
+                return '#6b7280'; // gray
+        }
     }
-}
-
+    
+    function getServiceColor(serviceName: string): string {
+        const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
+        const hash = serviceName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        return colors[hash % colors.length];
+    }
     
     function getStatusLabel(status: string): string {
         switch (status) {
@@ -51,16 +55,23 @@
         if (incident.html_url) {
             const linkText = `[${incident.title}](${incident.html_url})`;
             navigator.clipboard.writeText(linkText).then(() => {
-                // Optional: Show a toast notification
                 console.log('Link copied to clipboard');
             }).catch(err => {
                 console.error('Failed to copy: ', err);
             });
         }
     }
+    
+    function handleCardClick() {
+        // Only update selection, DO NOT open panel
+        // Panel is controlled only by toolbar button
+        selectedIncident.set(incident);
+    }
 </script>
 
-<div class="incident-card" role="button" tabindex="0">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="incident-card" on:click={handleCardClick}>
     <div class="action-buttons">
         <button class="action-button" on:click={openIncident} title="Open incident">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -117,6 +128,7 @@
         margin-bottom: 12px;
         transition: all 0.2s ease;
         position: relative;
+        cursor: pointer;
     }
     
     .incident-card:hover {
@@ -191,7 +203,7 @@
         background: none;
     }
 
-/* outlined variant */
+    /* outlined variant */
     .status-badge.outlined {
         background: white;            
         border: 1px solid transparent; 
@@ -202,7 +214,6 @@
     .status-icon {
         font-size: 11px;
     }
-    
     
     .incident-details {
         display: flex;
