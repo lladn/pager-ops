@@ -1,5 +1,10 @@
 <script lang="ts">
-    import { panelOpen, panelWidth } from '../stores/incidents';
+    import { panelOpen, panelWidth, activeTab, openIncidents, resolvedIncidents, selectedIncident } from '../stores/incidents';
+    import type { database } from '../../wailsjs/go/models';
+    import PanelAlerts from './PanelAlerts.svelte';
+    import PanelNotes from './PanelNotes.svelte';
+    
+    type IncidentData = database.IncidentData;
     
     const MIN_WIDTH = 280;
     const MAX_WIDTH = 600;
@@ -7,6 +12,22 @@
     let isResizing = false;
     let startX = 0;
     let startWidth = 0;
+    let panelTab: 'alerts' | 'notes' = 'alerts';
+    
+    
+    // Handle tab switching behavior
+    $: if ($activeTab) {
+        // When switching tabs, check if selected incident exists in new tab
+        if ($selectedIncident) {
+            const incidents = $activeTab === 'open' ? $openIncidents : $resolvedIncidents;
+            const incidentExists = incidents.some(i => i.incident_id === $selectedIncident?.incident_id);
+            
+            if (!incidentExists) {
+                // Clear selection if incident doesn't exist in new tab
+                selectedIncident.set(null);
+            }
+        }
+    }
     
     function startResize(event: MouseEvent) {
         isResizing = true;
@@ -37,6 +58,11 @@
         document.removeEventListener('mousemove', handleResize);
         document.removeEventListener('mouseup', stopResize);
     }
+    
+    function closePanel() {
+        panelOpen.set(false);
+        selectedIncident.set(null);
+    }
 </script>
 
 {#if $panelOpen}
@@ -45,17 +71,65 @@
         <div class="resize-handle" on:mousedown={startResize}></div>
         
         <div class="panel-header">
-            <h5>Alert Details</h5>
-            <button class="close-button" on:click={() => panelOpen.set(false)} title="Close Panel">
+            {#if $selectedIncident}
+                <h5>Incident Details</h5>
+            {:else}
+                <h5>Select an incident to view details</h5>
+            {/if}
+            <button class="close-button" on:click={closePanel} title="Close Panel">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
                     <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg>
             </button>
         </div>
-        <div class="panel-content">
-            <!-- Panel content will go here -->
-        </div>
+        
+        {#if $selectedIncident}
+            <!-- Show incident title and service -->
+            <div class="incident-info">
+                <div class="incident-title-section">
+                    <h4>{$selectedIncident.title}</h4>
+                    <span class="service-badge">{$selectedIncident.service_summary}</span>
+                </div>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div class="panel-tabs">
+                <button 
+                    class="panel-tab" 
+                    class:active={panelTab === 'alerts'}
+                    on:click={() => panelTab = 'alerts'}
+                >
+                    Alerts
+                </button>
+                <button 
+                    class="panel-tab" 
+                    class:active={panelTab === 'notes'}
+                    on:click={() => panelTab = 'notes'}
+                >
+                    Notes
+                </button>
+            </div>
+            
+            <!-- Tab Content -->
+            <div class="panel-content">
+                {#if panelTab === 'alerts'}
+                    <PanelAlerts incident={$selectedIncident} />
+                {:else if panelTab === 'notes'}
+                    <PanelNotes incident={$selectedIncident} />
+                {/if}
+            </div>
+        {:else}
+            <!-- Empty State -->
+            <div class="panel-empty-state">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 2v6h6V2"></path>
+                    <path d="M16 8V2H8v6"></path>
+                    <rect x="4" y="8" width="16" height="14" rx="2"></rect>
+                </svg>
+                <p>Select an incident to view details</p>
+            </div>
+        {/if}
     </div>
 {/if}
 
@@ -126,10 +200,85 @@
         color: #333;
     }
     
+    .incident-info {
+        padding: 16px;
+        border-bottom: 1px solid #e0e0e0;
+        background: #f9fafb;
+    }
+    
+    .incident-title-section h4 {
+        margin: 0 0 8px 0;
+        font-size: 15px;
+        font-weight: 600;
+        color: #111827;
+        line-height: 1.4;
+    }
+    
+    .service-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        background: #3b82f6;
+        color: white;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    
+    .panel-tabs {
+        display: flex;
+        border-bottom: 1px solid #e0e0e0;
+        background: #f9fafb;
+    }
+    
+    .panel-tab {
+        flex: 1;
+        padding: 12px 16px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+    
+    .panel-tab:hover {
+        color: #374151;
+        background: rgba(255, 255, 255, 0.5);
+    }
+    
+    .panel-tab.active {
+        color: #3b82f6;
+        background: white;
+        border-bottom-color: #3b82f6;
+    }
+    
     .panel-content {
         flex: 1;
         overflow-y: auto;
-        padding: 16px;
+    }
+    
+    .panel-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 32px;
+        color: #9ca3af;
+    }
+    
+    .panel-empty-state svg {
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .panel-empty-state p {
+        margin: 0;
+        font-size: 14px;
+        text-align: center;
+        color: #6b7280;
     }
     
     /* Custom scrollbar */
