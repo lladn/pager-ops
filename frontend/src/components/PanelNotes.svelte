@@ -1,39 +1,66 @@
 <script lang="ts">
+    import { sidebarData, sidebarLoading, sidebarError, loadIncidentSidebarData } from '../stores/incidents';
     import type { database } from '../../wailsjs/go/models';
     
     type IncidentData = database.IncidentData;
     
     export let incident: IncidentData;
     
-    let noteText = '';
+    function formatDate(dateStr: string): string {
+        const date = new Date(dateStr);
+        return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
     
-    function addNote() {
-        if (noteText.trim()) {
-            // API call will be implemented separately
-            console.log('Add note:', noteText);
-            noteText = '';
+    async function retry() {
+        if (incident?.incident_id) {
+            await loadIncidentSidebarData(incident.incident_id);
         }
     }
 </script>
 
 <div class="notes-container">
-    <div class="add-note-section">
-        <h6>Add Notes</h6>
-        <textarea 
-            bind:value={noteText}
-            placeholder="Enter your note..."
-            rows="4"
-        ></textarea>
-        <button 
-            class="add-note-button"
-            on:click={addNote}
-            disabled={!noteText.trim()}
-        >
-            Add Note
-        </button>
+    <div class="notes-header">
+        <h6>Incident Notes</h6>
     </div>
     
-    <div class="notes-list">
+    {#if $sidebarLoading}
+        <!-- Loading skeletons -->
+        <div class="skeleton-container">
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
+        </div>
+    {:else if $sidebarError}
+        <!-- Error state -->
+        <div class="error-banner">
+            <span class="error-icon">⚠️</span>
+            <p>{$sidebarError}</p>
+            <button class="retry-button" on:click={retry}>
+                Retry
+            </button>
+        </div>
+    {:else if $sidebarData?.notes && $sidebarData.notes.length > 0}
+        <!-- Display real notes -->
+        <div class="notes-list">
+            {#each $sidebarData.notes as note}
+                <div class="note-item">
+                    <div class="note-header">
+                        <span class="note-author">{note.user_name || 'Unknown User'}</span>
+                        <span class="note-time">{formatDate(note.created_at)}</span>
+                    </div>
+                    <div class="note-content">
+                        {note.content}
+                    </div>
+                </div>
+            {/each}
+        </div>
+    {:else}
+        <!-- Empty state -->
         <div class="notes-empty">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -41,71 +68,108 @@
                 <line x1="12" y1="18" x2="12" y2="12"></line>
                 <line x1="9" y1="15" x2="15" y2="15"></line>
             </svg>
-            <p>No notes added yet</p>
-            <span class="notes-hint">Note data will be populated from API calls (to be implemented separately)</span>
+            <p>No notes found for this incident</p>
         </div>
-    </div>
+    {/if}
 </div>
 
 <style>
+    /* Same styles as before */
     .notes-container {
         padding: 16px;
     }
     
-    .add-note-section {
-        margin-bottom: 20px;
+    .notes-header {
+        margin-bottom: 16px;
     }
     
-    .add-note-section h6 {
-        margin: 0 0 10px 0;
+    .notes-header h6 {
+        margin: 0;
         font-size: 14px;
         font-weight: 600;
         color: #111827;
     }
     
-    textarea {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
+    .notes-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .note-item {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px;
+    }
+    
+    .note-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+    
+    .note-author {
+        font-weight: 500;
+        color: #111827;
+        font-size: 13px;
+    }
+    
+    .note-time {
+        color: #6b7280;
+        font-size: 12px;
+    }
+    
+    .note-content {
+        color: #374151;
         font-size: 14px;
-        font-family: inherit;
-        resize: vertical;
-        margin-bottom: 10px;
+        line-height: 1.5;
+        white-space: pre-wrap;
     }
     
-    textarea:focus {
-        outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    .skeleton-container {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 12px;
     }
     
-    .add-note-button {
-        width: 100%;
-        padding: 10px 16px;
-        background: #6b7280;
+    .skeleton-line {
+        height: 16px;
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        border-radius: 4px;
+        margin-bottom: 4px;
+    }
+    
+    .skeleton-line.short {
+        width: 60%;
+    }
+    
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .retry-button {
+        padding: 4px 12px;
+        background: #dc2626;
         color: white;
         border: none;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 500;
+        border-radius: 4px;
+        font-size: 12px;
         cursor: pointer;
-        transition: background 0.2s;
-    }
-    
-    .add-note-button:hover:not(:disabled) {
-        background: #4b5563;
-    }
-    
-    .add-note-button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    
-    .notes-list {
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid #e5e7eb;
     }
     
     .notes-empty {
@@ -123,17 +187,9 @@
     }
     
     .notes-empty p {
-        margin: 0 0 8px 0;
+        margin: 0;
         font-size: 14px;
         color: #6b7280;
         font-weight: 500;
-    }
-    
-    .notes-hint {
-        font-size: 12px;
-        color: #9ca3af;
-        text-align: center;
-        font-style: italic;
-        max-width: 250px;
     }
 </style>

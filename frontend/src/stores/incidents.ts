@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
-import { database, store } from '../../wailsjs/go/models';
-import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, GetSelectedServices } from '../../wailsjs/go/main/App';
+import { GetOpenIncidents, GetResolvedIncidents, GetServicesConfig, GetSelectedServices, GetIncidentSidebarData } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+import type { database, store } from '../../wailsjs/go/models';
 
 // Type aliases for cleaner code
 type IncidentData = database.IncidentData;
@@ -26,7 +26,21 @@ export const loading = writable(false);
 export const error = writable<string | null>(null);
 
 // Store for selected incident (for panel display)
+export const sidebarOpen = writable(false);
 export const selectedIncident = writable<IncidentData | null>(null);
+export const selectedIncidentID = derived(
+    selectedIncident,
+    $incident => $incident?.incident_id || null
+);
+export const sidebarLoading = writable(false);
+export const sidebarError = writable<string | null>(null);
+export const sidebarData = writable<{
+    alerts: any[];
+    notes: any[];
+} | null>(null);
+
+// Track loading state to prevent duplicate fetches
+const loadingIncidents = new Set<string>();
 
 // Store for polling state to prevent loading flicker
 let isPolling = false;
@@ -36,6 +50,68 @@ let lastResolvedIncidentIds = new Set<string>();
 // Derived store for incident counts
 export const openCount = derived(openIncidents, $incidents => $incidents.length);
 export const resolvedCount = derived(resolvedIncidents, $incidents => $incidents.length);
+
+// Function to load sidebar data with deduplication - EXPORT THIS
+export async function loadIncidentSidebarData(incidentId: string) {
+    // Check if already loading this incident
+    if (loadingIncidents.has(incidentId)) {
+        return;
+    }
+
+    // Clear previous error
+    sidebarError.set(null);
+    
+    // Mark as loading
+    loadingIncidents.add(incidentId);
+    sidebarLoading.set(true);
+    
+    try {
+        const data = await GetIncidentSidebarData(incidentId);
+        
+        // Only update if this is still the selected incident
+        if (get(selectedIncidentID) === incidentId) {
+            if (data.error) {
+                sidebarError.set(data.error);
+            }
+            sidebarData.set({
+                alerts: data.alerts || [],
+                notes: data.notes || []
+            });
+        }
+    } catch (err) {
+        if (get(selectedIncidentID) === incidentId) {
+            sidebarError.set(err?.toString() || 'Failed to load incident details');
+            sidebarData.set(null);
+        }
+    } finally {
+        loadingIncidents.delete(incidentId);
+        if (get(selectedIncidentID) === incidentId) {
+            sidebarLoading.set(false);
+        }
+    }
+}
+
+// Lazy load sidebar data when panel opens and incident is selected
+export const shouldFetchSidebarData = derived(
+    [sidebarOpen, selectedIncidentID],
+    ([$open, $id]) => $open && $id !== null
+);
+
+// Subscribe to fetch trigger
+shouldFetchSidebarData.subscribe(async (shouldFetch) => {
+    if (shouldFetch) {
+        const incidentId = get(selectedIncidentID);
+        if (incidentId) {
+            await loadIncidentSidebarData(incidentId);
+        }
+    }
+});
+
+// Clear sidebar data when incident selection changes
+selectedIncident.subscribe(() => {
+    sidebarData.set(null);
+    sidebarError.set(null);
+});
 
 // Load incidents based on selected services
 export async function loadOpenIncidents() {
