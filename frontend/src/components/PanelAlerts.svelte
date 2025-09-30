@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { sidebarData, sidebarLoading, sidebarError, loadIncidentSidebarData } from '../stores/incidents';
     import type { database } from '../../wailsjs/go/models';
     
     type IncidentData = database.IncidentData;
@@ -15,44 +16,72 @@
             minute: '2-digit'
         });
     }
+    
+    async function retry() {
+        if (incident?.incident_id) {
+            await loadIncidentSidebarData(incident.incident_id);
+        }
+    }
 </script>
 
 <div class="alerts-container">
-    <div class="alert-item">
-        <div class="alert-header">
-            <span class="alert-icon">⚠</span>
-            <div class="alert-meta">
-                <span class="alert-source">Connection timeout exceeded</span>
-                <span class="alert-timestamp">Database Monitor • {formatDate(incident.created_at)}</span>
-            </div>
+    {#if $sidebarLoading}
+        <!-- Loading skeletons -->
+        <div class="skeleton-container">
+            <div class="skeleton-box"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
         </div>
-        <div class="alert-links">
-            <span class="links-label">Links:</span>
-            <a href={incident.html_url} target="_blank" rel="noopener noreferrer">dashboard</a>
+        <div class="skeleton-container">
+            <div class="skeleton-box"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
         </div>
-    </div>
-    
-    {#if incident.alert_count > 1}
-        <div class="alert-item">
-            <div class="alert-header">
-                <span class="alert-icon">⚠</span>
-                <div class="alert-meta">
-                    <span class="alert-source">Query response time &gt; 5s</span>
-                    <span class="alert-timestamp">Performance Monitor • {formatDate(incident.updated_at)}</span>
+    {:else if $sidebarError}
+        <!-- Error state -->
+        <div class="error-banner">
+            <span class="error-icon">⚠️</span>
+            <p>{$sidebarError}</p>
+            <button class="retry-button" on:click={retry}>
+                Retry
+            </button>
+        </div>
+    {:else if $sidebarData?.alerts && $sidebarData.alerts.length > 0}
+        <!-- Display real alerts -->
+        {#each $sidebarData.alerts as alert}
+            <div class="alert-item">
+                <div class="alert-header">
+                    <span class="alert-icon">⚠</span>
+                    <div class="alert-meta">
+                        <span class="alert-source">{alert.summary}</span>
+                        <span class="alert-timestamp">
+                            {alert.service_name || 'Unknown Service'} • {formatDate(alert.created_at)}
+                        </span>
+                    </div>
                 </div>
+                {#if alert.status}
+                    <div class="alert-status">
+                        Status: <span class="status-{alert.status.toLowerCase()}">{alert.status}</span>
+                    </div>
+                {/if}
+                {#if alert.links && alert.links.length > 0}
+                    <div class="alert-links">
+                        <span class="links-label">Links:</span>
+                        {#each alert.links as link}
+                            <a href={link.href} target="_blank" rel="noopener noreferrer">
+                                {link.text || 'View'}
+                            </a>
+                        {/each}
+                    </div>
+                {/if}
             </div>
-            <div class="alert-links">
-                <span class="links-label">Links:</span>
-                <a href={incident.html_url} target="_blank" rel="noopener noreferrer">dashboard</a>
-            </div>
+        {/each}
+    {:else}
+        <!-- Empty state -->
+        <div class="alerts-empty">
+            <p>No alerts found for this incident</p>
         </div>
     {/if}
-    
-    <div class="alerts-footer">
-        <p class="alerts-note">
-            Alert data will be populated from API calls (to be implemented separately)
-        </p>
-    </div>
 </div>
 
 <style>
@@ -79,62 +108,143 @@
     }
     
     .alert-icon {
-        font-size: 16px;
-        line-height: 1.4;
+        font-size: 18px;
+        color: #f59e0b;
     }
     
     .alert-meta {
         flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
     }
     
     .alert-source {
-        font-size: 14px;
+        display: block;
         font-weight: 500;
         color: #111827;
-        line-height: 1.4;
+        font-size: 14px;
+        margin-bottom: 2px;
     }
     
     .alert-timestamp {
-        font-size: 12px;
+        display: block;
         color: #6b7280;
+        font-size: 12px;
+    }
+    
+    .alert-status {
+        font-size: 13px;
+        color: #374151;
+        margin-bottom: 8px;
+    }
+    
+    .status-triggered {
+        color: #dc2626;
+        font-weight: 500;
+    }
+    
+    .status-acknowledged {
+        color: #f59e0b;
+        font-weight: 500;
+    }
+    
+    .status-resolved {
+        color: #10b981;
+        font-weight: 500;
     }
     
     .alert-links {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 12px;
-        margin-left: 26px;
+        margin-top: 8px;
+        font-size: 13px;
     }
     
     .links-label {
         color: #6b7280;
-        font-weight: 500;
+        margin-right: 8px;
     }
     
     .alert-links a {
         color: #3b82f6;
         text-decoration: none;
+        margin-right: 12px;
     }
     
     .alert-links a:hover {
         text-decoration: underline;
     }
     
-    .alerts-footer {
-        margin-top: 16px;
-        padding-top: 16px;
-        border-top: 1px solid #e5e7eb;
+    .skeleton-container {
+        margin-bottom: 12px;
+        padding: 12px;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
     }
     
-    .alerts-note {
-        font-size: 12px;
-        color: #9ca3af;
-        text-align: center;
+    .skeleton-box {
+        width: 100px;
+        height: 20px;
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        border-radius: 4px;
+        margin-bottom: 8px;
+    }
+    
+    .skeleton-line {
+        height: 16px;
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        border-radius: 4px;
+        margin-bottom: 4px;
+    }
+    
+    .skeleton-line.short {
+        width: 60%;
+    }
+    
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .error-icon {
+        font-size: 20px;
+    }
+    
+    .error-banner p {
+        flex: 1;
         margin: 0;
-        font-style: italic;
+        color: #991b1b;
+        font-size: 14px;
+    }
+    
+    .retry-button {
+        padding: 4px 12px;
+        background: #dc2626;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    
+    .retry-button:hover {
+        background: #b91c1c;
+    }
+    
+    .alerts-empty {
+        text-align: center;
+        color: #6b7280;
+        padding: 24px;
     }
 </style>
