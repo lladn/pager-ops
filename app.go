@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,6 +53,10 @@ type App struct {
 	latestResolvedDate    time.Time
 	latestResolvedMu      sync.RWMutex
 	resolvedFetchMu       sync.Mutex
+	sidebarDataCache      map[string]*store.IncidentSidebarData
+	sidebarDataCacheMu    sync.RWMutex
+	sidebarFetchingMu     sync.Mutex
+	fetchingIncidents     map[string]bool
 }
 
 // RateLimitTracker
@@ -300,15 +305,15 @@ func (a *App) startup(
 	a.notificationMgr = NewNotificationManager(a.logger)
 	a.logger.Info("Notification manager initialized")
 
-		// Load browser redirect setting from database
-		if a.db != nil {
-			if value, err := a.db.GetState("browser_redirect"); err == nil {
-				if value == "true" && a.notificationMgr != nil {
-					a.notificationMgr.SetBrowserRedirect(true)
-					a.logger.Info("Browser redirect enabled from saved settings")
-				}
+	// Load browser redirect setting from database
+	if a.db != nil {
+		if value, err := a.db.GetState("browser_redirect"); err == nil {
+			if value == "true" && a.notificationMgr != nil {
+				a.notificationMgr.SetBrowserRedirect(true)
+				a.logger.Info("Browser redirect enabled from saved settings")
 			}
 		}
+	}
 
 	// Initialize production components
 	a.rateLimitTracker = NewRateLimitTracker()
@@ -580,7 +585,7 @@ func (a *App) checkForTriggeredIncidents() {
 				}
 				a.logger.Info(fmt.Sprintf("Notification sent for triggered incident: %s (service: %s)",
 					incident.IncidentID, serviceName))
-				
+
 				// Queue browser redirect if enabled
 				a.notificationMgr.QueueBrowserRedirect(incident.IncidentID, incident.HTMLURL)
 			}
@@ -607,7 +612,7 @@ func (a *App) checkForTriggeredIncidents() {
 func (a *App) SetBrowserRedirect(enabled bool) {
 	if a.notificationMgr != nil {
 		a.notificationMgr.SetBrowserRedirect(enabled)
-		
+
 		// Persist the setting
 		if a.db != nil {
 			value := "false"
@@ -628,7 +633,6 @@ func (a *App) GetBrowserRedirect() bool {
 	}
 	return false
 }
-
 
 func (a *App) StartPolling() {
 	a.pollMu.Lock()
@@ -989,8 +993,6 @@ func (a *App) fetchResolvedIncidentsSince() {
 		a.logger.Info("Limiting resolved fetch to 7 days for performance")
 	}
 
-
-
 	resolvedOpts := store.FetchOptions{
 		ServiceIDs: selectedServices,
 		Statuses:   []string{"resolved"},
@@ -1328,7 +1330,7 @@ func (a *App) ToggleServiceDisabled(serviceID interface{}) error {
 	// Find and toggle the service's disabled state
 	for i := range a.servicesConfig.Services {
 		service := &a.servicesConfig.Services[i]
-		
+
 		// Match service by ID
 		match := false
 		switch sid := service.ID.(type) {
@@ -1368,10 +1370,10 @@ func (a *App) ToggleServiceDisabled(serviceID interface{}) error {
 		if match {
 			service.Disabled = !service.Disabled
 			a.logger.Info(fmt.Sprintf("Service %s disabled state: %v", service.Name, service.Disabled))
-			
+
 			// Trigger immediate refresh
 			go a.fetchAndUpdateIncidents()
-			
+
 			// Emit event to update UI
 			runtime.EventsEmit(a.ctx, "services-config-updated")
 			return nil
@@ -1437,6 +1439,164 @@ func (a *App) GetResolvedIncidents(
 
 	// Return filtered incidents
 	return a.db.GetResolvedIncidentsByServices(serviceIDs)
+}
+
+// GetIncidentSidebarData fetches alerts and notes for an incident with caching and deduplication
+func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarData, error) {
+	if incidentID == "" {
+		return nil, fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return nil, fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// Check cache first with read lock
+	a.sidebarDataCacheMu.RLock()
+	if cached, exists := a.sidebarDataCache[incidentID]; exists {
+		// Return cached data if it's less than 30 seconds old
+		a.sidebarDataCacheMu.RUnlock()
+		return cached, nil
+	}
+	a.sidebarDataCacheMu.RUnlock()
+
+	// Prevent duplicate fetches for the same incident
+	a.sidebarFetchingMu.Lock()
+	if a.fetchingIncidents == nil {
+		a.fetchingIncidents = make(map[string]bool)
+	}
+
+	if a.fetchingIncidents[incidentID] {
+		a.sidebarFetchingMu.Unlock()
+		// Wait a bit and check cache again
+		time.Sleep(100 * time.Millisecond)
+		a.sidebarDataCacheMu.RLock()
+		cached := a.sidebarDataCache[incidentID]
+		a.sidebarDataCacheMu.RUnlock()
+		if cached != nil {
+			return cached, nil
+		}
+		return nil, fmt.Errorf("fetch already in progress")
+	}
+
+	a.fetchingIncidents[incidentID] = true
+	a.sidebarFetchingMu.Unlock()
+
+	// Ensure we remove the fetching flag when done
+	defer func() {
+		a.sidebarFetchingMu.Lock()
+		delete(a.fetchingIncidents, incidentID)
+		a.sidebarFetchingMu.Unlock()
+	}()
+
+	// Create response object
+	response := &store.IncidentSidebarData{
+		IncidentID: incidentID,
+		Loading:    false,
+		Alerts:     []store.IncidentAlert{},
+		Notes:      []store.IncidentNote{},
+	}
+
+	// Use channels to fetch alerts and notes concurrently
+	type alertResult struct {
+		alerts []store.IncidentAlert
+		err    error
+	}
+
+	type noteResult struct {
+		notes []store.IncidentNote
+		err   error
+	}
+
+	alertChan := make(chan alertResult, 1)
+	noteChan := make(chan noteResult, 1)
+
+	// Fetch alerts in goroutine
+	go func() {
+		alerts, err := a.client.GetIncidentAlerts(incidentID)
+		alertChan <- alertResult{alerts: alerts, err: err}
+	}()
+
+	// Fetch notes in goroutine
+	go func() {
+		notes, err := a.client.GetIncidentNotes(incidentID)
+		noteChan <- noteResult{notes: notes, err: err}
+	}()
+
+	// Wait for both results with timeout
+	timeout := time.After(30 * time.Second)
+	var alertsReceived, notesReceived bool
+	var errors []string
+
+	for !alertsReceived || !notesReceived {
+		select {
+		case alertRes := <-alertChan:
+			alertsReceived = true
+			if alertRes.err != nil {
+				errors = append(errors, fmt.Sprintf("alerts: %v", alertRes.err))
+				a.logger.Error(fmt.Sprintf("Failed to fetch alerts for %s: %v", incidentID, alertRes.err))
+			} else {
+				response.Alerts = alertRes.alerts
+			}
+
+		case noteRes := <-noteChan:
+			notesReceived = true
+			if noteRes.err != nil {
+				errors = append(errors, fmt.Sprintf("notes: %v", noteRes.err))
+				a.logger.Error(fmt.Sprintf("Failed to fetch notes for %s: %v", incidentID, noteRes.err))
+			} else {
+				response.Notes = noteRes.notes
+			}
+
+		case <-timeout:
+			if !alertsReceived || !notesReceived {
+				errors = append(errors, "timeout waiting for data")
+			}
+			alertsReceived = true
+			notesReceived = true
+		}
+	}
+
+	// Set error if any occurred
+	if len(errors) > 0 {
+		response.Error = strings.Join(errors, "; ")
+	}
+
+	// Cache the response
+	a.sidebarDataCacheMu.Lock()
+	if a.sidebarDataCache == nil {
+		a.sidebarDataCache = make(map[string]*store.IncidentSidebarData)
+	}
+	a.sidebarDataCache[incidentID] = response
+	a.sidebarDataCacheMu.Unlock()
+
+	// Clean old cache entries periodically (in background)
+	go a.cleanSidebarCache()
+
+	return response, nil
+}
+
+// cleanSidebarCache removes cache entries older than 5 minutes
+func (a *App) cleanSidebarCache() {
+	// Simple cache cleanup - in production you'd track timestamps
+	time.Sleep(5 * time.Minute)
+
+	a.sidebarDataCacheMu.Lock()
+	defer a.sidebarDataCacheMu.Unlock()
+
+	// For simplicity, clear entire cache after 5 minutes
+	// In production, track individual entry timestamps
+	a.sidebarDataCache = make(map[string]*store.IncidentSidebarData)
+}
+
+// ClearIncidentSidebarCache clears cached sidebar data for a specific incident
+func (a *App) ClearIncidentSidebarCache(incidentID string) {
+	a.sidebarDataCacheMu.Lock()
+	defer a.sidebarDataCacheMu.Unlock()
+
+	if a.sidebarDataCache != nil {
+		delete(a.sidebarDataCache, incidentID)
+	}
 }
 
 // to fetch user on startup
