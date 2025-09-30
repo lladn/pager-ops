@@ -25,6 +25,9 @@ export const panelWidth = writable(320);
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
+// Store for selected incident (for panel display)
+export const selectedIncident = writable<IncidentData | null>(null);
+
 // Store for polling state to prevent loading flicker
 let isPolling = false;
 let lastOpenIncidentIds = new Set<string>();
