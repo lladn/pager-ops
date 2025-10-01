@@ -4,8 +4,6 @@ import {store} from '../models';
 import {main} from '../models';
 import {database} from '../models';
 
-export function ClearIncidentSidebarCache(arg1:string):Promise<void>;
-
 export function ConfigureAPIKey(arg1:string):Promise<void>;
 
 export function GetAPIKey():Promise<string>;
