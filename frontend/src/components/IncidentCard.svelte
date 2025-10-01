@@ -2,6 +2,7 @@
     import { database } from '../../wailsjs/go/models';
     import { formatTime, selectedIncident } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+    import { getServiceColor } from '../lib/serviceColors';
     
     type IncidentData = database.IncidentData;
     
@@ -22,12 +23,6 @@
             default:
                 return '#6b7280'; // gray
         }
-    }
-    
-    function getServiceColor(serviceName: string): string {
-        const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
-        const hash = serviceName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        return colors[hash % colors.length];
     }
     
     function getStatusLabel(status: string): string {
@@ -221,6 +216,7 @@
         color: #6b7280;
         font-size: 13px;
         flex-wrap: wrap;
+        gap: 0;
     }
     
     .service-name {
