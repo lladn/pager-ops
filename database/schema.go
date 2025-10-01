@@ -31,6 +31,33 @@ type IncidentData struct {
 	Urgency        string    `json:"urgency"`
 }
 
+// SidebarAlert represents alert data stored in database
+type SidebarAlert struct {
+	ID          string `json:"id"`
+	Summary     string `json:"summary"`
+	Status      string `json:"status"`
+	CreatedAt   string `json:"created_at"`
+	ServiceName string `json:"service_name,omitempty"`
+	Links       string `json:"links,omitempty"` // JSON string
+}
+
+// SidebarNote represents note data stored in database  
+type SidebarNote struct {
+	ID        string `json:"id"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+	UserName  string `json:"user_name,omitempty"`
+}
+
+// SidebarMetadata represents metadata for sidebar data
+type SidebarMetadata struct {
+	IncidentID        string
+	LastFetchedAlerts *time.Time
+	LastFetchedNotes  *time.Time
+	LastAlertCount    int
+	LastUpdatedAt     *time.Time
+}
+
 // NewDB creates a new database connection - ORIGINAL METHOD UNCHANGED
 func NewDB(path string) (*DB, error) {
 	conn, err := sql.Open("sqlite3", path)
@@ -45,9 +72,342 @@ func NewDB(path string) (*DB, error) {
 		conn.Close()
 		return nil, err
 	}
+	
+	// Create sidebar tables
+	if err := db.createSidebarTables(); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	return db, nil
 }
+
+
+// StoreIncidentAlerts stores alerts for an incident (links already JSON)
+func (db *DB) StoreIncidentAlerts(incidentID string, alerts []SidebarAlert) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete existing alerts for the incident
+	_, err = tx.Exec("DELETE FROM incident_alerts WHERE incident_id = ?", incidentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing alerts: %w", err)
+	}
+	
+	// Prepare insert statement
+	stmt, err := tx.Prepare(`
+		INSERT INTO incident_alerts (id, incident_id, summary, status, created_at, service_name, links)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert statement: %w", err)
+	}
+	defer stmt.Close()
+	
+	// Insert new alerts
+	for _, alert := range alerts {
+		_, err = stmt.Exec(
+			alert.ID,
+			incidentID,
+			alert.Summary,
+			alert.Status,
+			alert.CreatedAt,
+			alert.ServiceName,
+			alert.Links, // Already JSON string
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert alert %s: %w", alert.ID, err)
+		}
+	}
+	
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}
+
+func (db *DB) GetIncidentAlerts(incidentID string) ([]SidebarAlert, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	
+	query := `
+		SELECT id, summary, status, created_at, service_name, links
+		FROM incident_alerts
+		WHERE incident_id = ?
+		ORDER BY created_at DESC
+	`
+	
+	rows, err := db.conn.Query(query, incidentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query alerts: %w", err)
+	}
+	defer rows.Close()
+	
+	var alerts []SidebarAlert
+	for rows.Next() {
+		var alert SidebarAlert
+		
+		err := rows.Scan(
+			&alert.ID,
+			&alert.Summary,
+			&alert.Status,
+			&alert.CreatedAt,
+			&alert.ServiceName,
+			&alert.Links, // JSON string
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan alert: %w", err)
+		}
+		
+		alerts = append(alerts, alert)
+	}
+	
+	return alerts, nil
+}
+
+func (db *DB) StoreIncidentNotes(incidentID string, notes []SidebarNote) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete existing notes for the incident
+	_, err = tx.Exec("DELETE FROM incident_notes WHERE incident_id = ?", incidentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete existing notes: %w", err)
+	}
+	
+	// Prepare insert statement
+	stmt, err := tx.Prepare(`
+		INSERT INTO incident_notes (id, incident_id, content, created_at, user_name)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert statement: %w", err)
+	}
+	defer stmt.Close()
+	
+	// Insert new notes
+	for _, note := range notes {
+		_, err = stmt.Exec(
+			note.ID,
+			incidentID,
+			note.Content,
+			note.CreatedAt,
+			note.UserName,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert note %s: %w", note.ID, err)
+		}
+	}
+	
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	
+	return nil
+}
+
+func (db *DB) GetIncidentNotes(incidentID string) ([]SidebarNote, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	
+	query := `
+		SELECT id, content, created_at, user_name
+		FROM incident_notes
+		WHERE incident_id = ?
+		ORDER BY created_at DESC
+	`
+	
+	rows, err := db.conn.Query(query, incidentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query notes: %w", err)
+	}
+	defer rows.Close()
+	
+	var notes []SidebarNote
+	for rows.Next() {
+		var note SidebarNote
+		
+		err := rows.Scan(
+			&note.ID,
+			&note.Content,
+			&note.CreatedAt,
+			&note.UserName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan note: %w", err)
+		}
+		
+		notes = append(notes, note)
+	}
+	
+	return notes, nil
+}
+
+
+// GetSidebarMetadata retrieves metadata for sidebar data
+func (db *DB) GetSidebarMetadata(incidentID string) (*SidebarMetadata, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	
+	query := `
+		SELECT last_fetched_alerts, last_fetched_notes, last_alert_count, last_updated_at
+		FROM incident_sidebar_metadata
+		WHERE incident_id = ?
+	`
+	
+	var metadata SidebarMetadata
+	var lastFetchedAlerts, lastFetchedNotes, lastUpdatedAt sql.NullTime
+	
+	err := db.conn.QueryRow(query, incidentID).Scan(
+		&lastFetchedAlerts,
+		&lastFetchedNotes,
+		&metadata.LastAlertCount,
+		&lastUpdatedAt,
+	)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil // No metadata exists
+	}
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metadata: %w", err)
+	}
+	
+	metadata.IncidentID = incidentID
+	if lastFetchedAlerts.Valid {
+		metadata.LastFetchedAlerts = &lastFetchedAlerts.Time
+	}
+	if lastFetchedNotes.Valid {
+		metadata.LastFetchedNotes = &lastFetchedNotes.Time
+	}
+	if lastUpdatedAt.Valid {
+		metadata.LastUpdatedAt = &lastUpdatedAt.Time
+	}
+	
+	return &metadata, nil
+}
+
+func (db *DB) UpdateSidebarMetadata(incidentID string, alertCount int, updatedAt time.Time, fetchedAlerts bool, fetchedNotes bool) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	
+	// Get current metadata to preserve unfetched timestamps
+	var existingAlertsFetch, existingNotesFetch sql.NullTime
+	
+	query := `SELECT last_fetched_alerts, last_fetched_notes FROM incident_sidebar_metadata WHERE incident_id = ?`
+	err := db.conn.QueryRow(query, incidentID).Scan(&existingAlertsFetch, &existingNotesFetch)
+	
+	now := time.Now()
+	var alertsFetch, notesFetch sql.NullTime
+	
+	if err == sql.ErrNoRows {
+		// No existing metadata, set times based on what was fetched
+		if fetchedAlerts {
+			alertsFetch = sql.NullTime{Time: now, Valid: true}
+		}
+		if fetchedNotes {
+			notesFetch = sql.NullTime{Time: now, Valid: true}
+		}
+	} else if err == nil {
+		// Preserve existing timestamps, update only what was fetched
+		alertsFetch = existingAlertsFetch
+		notesFetch = existingNotesFetch
+		
+		if fetchedAlerts {
+			alertsFetch = sql.NullTime{Time: now, Valid: true}
+		}
+		if fetchedNotes {
+			notesFetch = sql.NullTime{Time: now, Valid: true}
+		}
+	} else {
+		return fmt.Errorf("failed to query existing metadata: %w", err)
+	}
+	
+	// Upsert the metadata
+	upsertQuery := `
+		INSERT INTO incident_sidebar_metadata (incident_id, last_fetched_alerts, last_fetched_notes, last_alert_count, last_updated_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(incident_id) DO UPDATE SET
+			last_fetched_alerts = excluded.last_fetched_alerts,
+			last_fetched_notes = excluded.last_fetched_notes,
+			last_alert_count = excluded.last_alert_count,
+			last_updated_at = excluded.last_updated_at
+	`
+	
+	_, err = db.conn.Exec(upsertQuery, incidentID, alertsFetch, notesFetch, alertCount, updatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to upsert metadata: %w", err)
+	}
+	
+	return nil
+}
+
+func (db *DB) CleanupOldSidebarData(cutoffDate time.Time) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	
+	// Delete alerts for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_alerts
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old alerts: %w", err)
+	}
+	
+	// Delete notes for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_notes
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old notes: %w", err)
+	}
+	
+	// Delete metadata for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_sidebar_metadata
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old metadata: %w", err)
+	}
+	
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit cleanup transaction: %w", err)
+	}
+	
+	return nil
+}
+
 
 // createTables - ORIGINAL METHOD ENHANCED WITH INDEXES
 func (db *DB) createTables() error {
@@ -78,6 +438,64 @@ func (db *DB) createTables() error {
 		return fmt.Errorf("failed to create incidents table: %w", err)
 	}
 
+	return nil
+}
+
+// createSidebarTables creates tables for incident sidebar data
+func (db *DB) createSidebarTables() error {
+	// Create incident_alerts table
+	alertsTable := `
+	CREATE TABLE IF NOT EXISTS incident_alerts (
+		id TEXT PRIMARY KEY,
+		incident_id TEXT NOT NULL,
+		summary TEXT,
+		status TEXT,
+		created_at TEXT,
+		service_name TEXT,
+		links TEXT,  -- JSON serialized array
+		FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_alerts_incident ON incident_alerts(incident_id);
+	`
+	
+	// Create incident_notes table  
+	notesTable := `
+	CREATE TABLE IF NOT EXISTS incident_notes (
+		id TEXT PRIMARY KEY,
+		incident_id TEXT NOT NULL,
+		content TEXT,
+		created_at TEXT,
+		user_name TEXT,
+		FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_notes_incident ON incident_notes(incident_id);
+	`
+	
+	// Create incident_sidebar_metadata table
+	metadataTable := `
+	CREATE TABLE IF NOT EXISTS incident_sidebar_metadata (
+		incident_id TEXT PRIMARY KEY,
+		last_fetched_alerts DATETIME,
+		last_fetched_notes DATETIME,
+		last_alert_count INTEGER DEFAULT 0,
+		last_updated_at DATETIME,
+		FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE
+	);
+	`
+	
+	// Execute all table creations
+	if _, err := db.conn.Exec(alertsTable); err != nil {
+		return fmt.Errorf("failed to create incident_alerts table: %w", err)
+	}
+	
+	if _, err := db.conn.Exec(notesTable); err != nil {
+		return fmt.Errorf("failed to create incident_notes table: %w", err)
+	}
+	
+	if _, err := db.conn.Exec(metadataTable); err != nil {
+		return fmt.Errorf("failed to create incident_sidebar_metadata table: %w", err)
+	}
+	
 	return nil
 }
 
@@ -127,7 +545,7 @@ func (db *DB) GetState(key string) (string, error) {
 
 	var value string
 	query := `SELECT value FROM app_state WHERE key = ?`
-	
+
 	err := db.conn.QueryRow(query, key).Scan(&value)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("state key not found: %s", key)
@@ -166,7 +584,7 @@ func (db *DB) UpsertIncident(incident IncidentData) error {
 		incident.AlertCount,
 		incident.Urgency,
 	)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to upsert incident %s: %w", incident.IncidentID, err)
 	}
@@ -419,7 +837,7 @@ func (db *DB) GetIncidentStats() (map[string]interface{}, error) {
 			COUNT(CASE WHEN status = 'resolved' THEN 1 END) as resolved
 		FROM incidents
 	`).Scan(&triggered, &acknowledged, &resolved)
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get incident stats: %w", err)
 	}
@@ -443,7 +861,7 @@ func (db *DB) GetNewestResolvedIncidentDate() (time.Time, error) {
 		ORDER BY updated_at DESC
 		LIMIT 1
 	`
-	
+
 	err := db.conn.QueryRow(query).Scan(&updatedAt)
 	if err == sql.ErrNoRows {
 		return time.Time{}, nil // No resolved incidents found
@@ -466,7 +884,7 @@ func (db *DB) RemoveStaleOpenIncidents(currentIncidentIDs []string, serviceIDs [
 			SET status = 'resolved', updated_at = CURRENT_TIMESTAMP
 			WHERE status IN ('triggered', 'acknowledged')
 		`
-		
+
 		if len(serviceIDs) > 0 {
 			placeholders := make([]string, len(serviceIDs))
 			args := make([]interface{}, len(serviceIDs))
@@ -475,7 +893,7 @@ func (db *DB) RemoveStaleOpenIncidents(currentIncidentIDs []string, serviceIDs [
 				args[i] = id
 			}
 			query += fmt.Sprintf(" AND service_id IN (%s)", strings.Join(placeholders, ","))
-			
+
 			_, err := db.conn.Exec(query, args...)
 			if err != nil {
 				return fmt.Errorf("failed to remove all stale open incidents: %w", err)
@@ -487,7 +905,7 @@ func (db *DB) RemoveStaleOpenIncidents(currentIncidentIDs []string, serviceIDs [
 	// Build NOT IN clause for incident IDs
 	placeholders := make([]string, len(currentIncidentIDs))
 	args := make([]interface{}, 0, len(currentIncidentIDs)+len(serviceIDs))
-	
+
 	for i, id := range currentIncidentIDs {
 		placeholders[i] = "?"
 		args = append(args, id)
