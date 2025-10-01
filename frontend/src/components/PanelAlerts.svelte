@@ -1,6 +1,7 @@
 <script lang="ts">
     import { sidebarData, sidebarLoading, sidebarError, loadIncidentSidebarData } from '../stores/incidents';
     import type { database } from '../../wailsjs/go/models';
+    import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     
     type IncidentData = database.IncidentData;
     
@@ -20,6 +21,12 @@
     async function retry() {
         if (incident?.incident_id) {
             await loadIncidentSidebarData(incident.incident_id);
+        }
+    }
+    
+    function openLink(url: string) {
+        if (url) {
+            BrowserOpenURL(url);
         }
     }
 </script>
@@ -68,9 +75,13 @@
                     <div class="alert-links">
                         <span class="links-label">Links:</span>
                         {#each alert.links as link}
-                            <a href={link.href} target="_blank" rel="noopener noreferrer">
+                            <button 
+                                class="link-button" 
+                                on:click={() => openLink(link.href)}
+                                title={link.href}
+                            >
                                 {link.text || 'View'}
-                            </a>
+                            </button>
                         {/each}
                     </div>
                 {/if}
@@ -110,10 +121,12 @@
     .alert-icon {
         font-size: 18px;
         color: #f59e0b;
+        flex-shrink: 0;
     }
     
     .alert-meta {
         flex: 1;
+        min-width: 0;
     }
     
     .alert-source {
@@ -122,18 +135,24 @@
         color: #111827;
         font-size: 14px;
         margin-bottom: 2px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .alert-timestamp {
         display: block;
         color: #6b7280;
         font-size: 12px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .alert-status {
         font-size: 13px;
         color: #374151;
         margin-bottom: 8px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .status-triggered {
@@ -154,21 +173,37 @@
     .alert-links {
         margin-top: 8px;
         font-size: 13px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
     }
     
     .links-label {
         color: #6b7280;
-        margin-right: 8px;
     }
     
-    .alert-links a {
+    .link-button {
+        background: none;
+        border: none;
+        padding: 0;
         color: #3b82f6;
         text-decoration: none;
-        margin-right: 12px;
+        cursor: pointer;
+        font-size: 13px;
+        word-break: break-all;
+        transition: color 0.2s;
     }
     
-    .alert-links a:hover {
+    .link-button:hover {
         text-decoration: underline;
+        color: #2563eb;
+    }
+    
+    .link-button:active {
+        color: #1d4ed8;
     }
     
     .skeleton-container {
@@ -219,6 +254,7 @@
     
     .error-icon {
         font-size: 20px;
+        flex-shrink: 0;
     }
     
     .error-banner p {
@@ -226,6 +262,8 @@
         margin: 0;
         color: #991b1b;
         font-size: 14px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .retry-button {
@@ -236,6 +274,7 @@
         border-radius: 4px;
         font-size: 12px;
         cursor: pointer;
+        flex-shrink: 0;
     }
     
     .retry-button:hover {

@@ -6,11 +6,12 @@
     
     export let incident: IncidentData;
     
-    function formatDate(dateStr: string): string {
-        const date = new Date(dateStr);
-        return date.toLocaleString('en-US', {
+    function formatDate(date: Date | string): string {
+        const d = typeof date === 'string' ? new Date(date) : date;
+        return d.toLocaleString('en-US', {
             month: 'short',
             day: 'numeric',
+            year: 'numeric',
             hour: '2-digit',
             minute: '2-digit'
         });
@@ -24,12 +25,13 @@
 </script>
 
 <div class="notes-container">
-    <div class="notes-header">
-        <h6>Incident Notes</h6>
-    </div>
-    
     {#if $sidebarLoading}
         <!-- Loading skeletons -->
+        <div class="skeleton-container">
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
+        </div>
         <div class="skeleton-container">
             <div class="skeleton-line"></div>
             <div class="skeleton-line"></div>
@@ -45,7 +47,9 @@
             </button>
         </div>
     {:else if $sidebarData?.notes && $sidebarData.notes.length > 0}
-        <!-- Display real notes -->
+        <div class="notes-header">
+            <h6>Notes ({$sidebarData.notes.length})</h6>
+        </div>
         <div class="notes-list">
             {#each $sidebarData.notes as note}
                 <div class="note-item">
@@ -74,7 +78,6 @@
 </div>
 
 <style>
-    /* Same styles as before */
     .notes-container {
         padding: 16px;
     }
@@ -107,17 +110,22 @@
         display: flex;
         justify-content: space-between;
         margin-bottom: 8px;
+        gap: 8px;
+        flex-wrap: wrap;
     }
     
     .note-author {
         font-weight: 500;
         color: #111827;
         font-size: 13px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .note-time {
         color: #6b7280;
         font-size: 12px;
+        flex-shrink: 0;
     }
     
     .note-content {
@@ -125,6 +133,8 @@
         font-size: 14px;
         line-height: 1.5;
         white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
     .skeleton-container {
@@ -132,6 +142,7 @@
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         padding: 12px;
+        margin-bottom: 12px;
     }
     
     .skeleton-line {
@@ -162,6 +173,20 @@
         gap: 8px;
     }
     
+    .error-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+    
+    .error-banner p {
+        flex: 1;
+        margin: 0;
+        color: #991b1b;
+        font-size: 14px;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
     .retry-button {
         padding: 4px 12px;
         background: #dc2626;
@@ -170,6 +195,11 @@
         border-radius: 4px;
         font-size: 12px;
         cursor: pointer;
+        flex-shrink: 0;
+    }
+    
+    .retry-button:hover {
+        background: #b91c1c;
     }
     
     .notes-empty {
