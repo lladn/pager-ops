@@ -42,6 +42,9 @@ export const sidebarData = writable<{
 // Track loading state to prevent duplicate fetches
 const loadingIncidents = new Set<string>();
 
+// Track last fetched incidents to enable smart caching
+const lastFetchedIncidentMetadata = new Map<string, { alertCount: number; updatedAt: string }>();
+
 // Store for polling state to prevent loading flicker
 let isPolling = false;
 let lastOpenIncidentIds = new Set<string>();
@@ -58,7 +61,7 @@ export async function loadIncidentSidebarData(incidentId: string) {
         return;
     }
 
-    // Clear previous error
+    // Clear previous error but keep data until new data arrives
     sidebarError.set(null);
     
     // Mark as loading
@@ -81,7 +84,7 @@ export async function loadIncidentSidebarData(incidentId: string) {
     } catch (err) {
         if (get(selectedIncidentID) === incidentId) {
             sidebarError.set(err?.toString() || 'Failed to load incident details');
-            sidebarData.set(null);
+            // Don't clear data on error - keep showing previous data
         }
     } finally {
         loadingIncidents.delete(incidentId);
@@ -91,26 +94,73 @@ export async function loadIncidentSidebarData(incidentId: string) {
     }
 }
 
-// Lazy load sidebar data when panel opens and incident is selected
-export const shouldFetchSidebarData = derived(
-    [panelOpen, selectedIncidentID],
-    ([$open, $id]) => $open && $id !== null
-);
+// Function to check if incident needs refresh based on metadata changes
+function shouldRefetchIncident(incidentId: string, incident: IncidentData | null): boolean {
+    if (!incident) return false;
+    
+    const lastMeta = lastFetchedIncidentMetadata.get(incidentId);
+    if (!lastMeta) return true; // Never fetched before
+    
+    // Check if alert count changed or incident was updated
+    const alertCountChanged = incident.alert_count !== lastMeta.alertCount;
+    const updatedAtChanged = incident.updated_at !== lastMeta.updatedAt;
+    
+    return alertCountChanged || updatedAtChanged;
+}
 
-// Subscribe to fetch trigger
-shouldFetchSidebarData.subscribe(async (shouldFetch) => {
-    if (shouldFetch) {
-        const incidentId = get(selectedIncidentID);
-        if (incidentId) {
-            await loadIncidentSidebarData(incidentId);
+// Function to update incident metadata after fetch
+function updateIncidentMetadata(incidentId: string, incident: IncidentData) {
+    lastFetchedIncidentMetadata.set(incidentId, {
+        alertCount: incident.alert_count || 0,
+        updatedAt: incident.updated_at
+    });
+}
+
+// Subscribe to selectedIncidentID changes to trigger fetch when panel is open
+let previousIncidentID: string | null = null;
+selectedIncidentID.subscribe(async (currentID) => {
+    // Only fetch if panel is open and incident ID actually changed
+    if (currentID && currentID !== previousIncidentID && get(panelOpen)) {
+        previousIncidentID = currentID;
+        
+        // Clear error state when switching incidents
+        sidebarError.set(null);
+        
+        // Load the incident data
+        const incident = get(selectedIncident);
+        await loadIncidentSidebarData(currentID);
+        
+        // Update metadata after successful fetch
+        if (incident) {
+            updateIncidentMetadata(currentID, incident);
         }
+    } else if (!currentID) {
+        // Clear when no incident selected
+        previousIncidentID = null;
+        sidebarData.set(null);
+        sidebarError.set(null);
+    } else {
+        // Update previous ID tracker
+        previousIncidentID = currentID;
     }
 });
 
-// Clear sidebar data when incident selection changes
-selectedIncident.subscribe(() => {
-    sidebarData.set(null);
-    sidebarError.set(null);
+// Subscribe to panel open/close to trigger fetch when opening panel with selected incident
+panelOpen.subscribe(async (isOpen) => {
+    if (isOpen) {
+        const incidentId = get(selectedIncidentID);
+        if (incidentId) {
+            const incident = get(selectedIncident);
+            
+            // Check if we should refetch based on metadata changes
+            if (shouldRefetchIncident(incidentId, incident)) {
+                await loadIncidentSidebarData(incidentId);
+                if (incident) {
+                    updateIncidentMetadata(incidentId, incident);
+                }
+            }
+        }
+    }
 });
 
 // Load incidents based on selected services
@@ -137,6 +187,16 @@ export async function loadOpenIncidents() {
         
         lastOpenIncidentIds = currentOpenIds;
         openIncidents.set(incidents || []);
+        
+        // Check if selected incident's metadata changed and panel is open
+        const currentIncidentID = get(selectedIncidentID);
+        if (currentIncidentID && get(panelOpen)) {
+            const currentIncident = incidents.find((i: IncidentData) => i.incident_id === currentIncidentID);
+            if (currentIncident && shouldRefetchIncident(currentIncidentID, currentIncident)) {
+                await loadIncidentSidebarData(currentIncidentID);
+                updateIncidentMetadata(currentIncidentID, currentIncident);
+            }
+        }
     } catch (err) {
         error.set(err?.toString() || 'Failed to load open incidents');
         openIncidents.set([]);
@@ -162,6 +222,16 @@ export async function loadResolvedIncidents() {
         lastResolvedIncidentIds = currentResolvedIds;
         
         resolvedIncidents.set(incidents || []);
+        
+        // Check if selected incident's metadata changed and panel is open
+        const currentIncidentID = get(selectedIncidentID);
+        if (currentIncidentID && get(panelOpen)) {
+            const currentIncident = incidents.find((i: IncidentData) => i.incident_id === currentIncidentID);
+            if (currentIncident && shouldRefetchIncident(currentIncidentID, currentIncident)) {
+                await loadIncidentSidebarData(currentIncidentID);
+                updateIncidentMetadata(currentIncidentID, currentIncident);
+            }
+        }
     } catch (err) {
         error.set(err?.toString() || 'Failed to load resolved incidents');
         resolvedIncidents.set([]);
