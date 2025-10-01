@@ -53,8 +53,6 @@ type App struct {
 	latestResolvedDate    time.Time
 	latestResolvedMu      sync.RWMutex
 	resolvedFetchMu       sync.Mutex
-	sidebarDataCache      map[string]*store.IncidentSidebarData
-	sidebarDataCacheMu    sync.RWMutex
 	sidebarFetchingMu     sync.Mutex
 	fetchingIncidents     map[string]bool
 }
@@ -319,6 +317,9 @@ func (a *App) startup(
 	a.rateLimitTracker = NewRateLimitTracker()
 	a.userCache = NewUserCache()
 	a.circuitBreaker = NewCircuitBreaker()
+
+	// Start sidebar data cleanup routine
+	go a.cleanupOldSidebarData()
 
 	// In the startup method, modify the section where API key is loaded:
 	// Try to load API key and initialize client
@@ -1451,16 +1452,7 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 		return nil, fmt.Errorf("PagerDuty client not initialized")
 	}
 
-	// Check cache first with read lock
-	a.sidebarDataCacheMu.RLock()
-	if cached, exists := a.sidebarDataCache[incidentID]; exists {
-		// Return cached data if it's less than 30 seconds old
-		a.sidebarDataCacheMu.RUnlock()
-		return cached, nil
-	}
-	a.sidebarDataCacheMu.RUnlock()
-
-	// Prevent duplicate fetches for the same incident
+	// Prevent duplicate fetches for the same incident - KEEP THIS LOGIC
 	a.sidebarFetchingMu.Lock()
 	if a.fetchingIncidents == nil {
 		a.fetchingIncidents = make(map[string]bool)
@@ -1468,13 +1460,21 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 
 	if a.fetchingIncidents[incidentID] {
 		a.sidebarFetchingMu.Unlock()
-		// Wait a bit and check cache again
-		time.Sleep(100 * time.Millisecond)
-		a.sidebarDataCacheMu.RLock()
-		cached := a.sidebarDataCache[incidentID]
-		a.sidebarDataCacheMu.RUnlock()
-		if cached != nil {
-			return cached, nil
+		// Check database for existing data
+		dbAlerts, _ := a.db.GetIncidentAlerts(incidentID)
+		dbNotes, _ := a.db.GetIncidentNotes(incidentID)
+
+		if len(dbAlerts) > 0 || len(dbNotes) > 0 {
+			// Convert database types to store types
+			alerts := convertDBToStoreAlerts(dbAlerts)
+			notes := convertDBToStoreNotes(dbNotes)
+
+			return &store.IncidentSidebarData{
+				IncidentID: incidentID,
+				Alerts:     alerts,
+				Notes:      notes,
+				Loading:    false,
+			}, nil
 		}
 		return nil, fmt.Errorf("fetch already in progress")
 	}
@@ -1497,7 +1497,80 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 		Notes:      []store.IncidentNote{},
 	}
 
-	// Use channels to fetch alerts and notes concurrently
+	// Fetch from database first
+	dbExistingAlerts, _ := a.db.GetIncidentAlerts(incidentID)
+	dbExistingNotes, _ := a.db.GetIncidentNotes(incidentID)
+	metadata, _ := a.db.GetSidebarMetadata(incidentID)
+
+	// Convert database types to store types for existing data
+	existingAlerts := convertDBToStoreAlerts(dbExistingAlerts)
+	existingNotes := convertDBToStoreNotes(dbExistingNotes)
+
+	// Get current incident data for comparison
+	var currentIncident database.IncidentData
+	incidents, err := a.db.GetOpenIncidents()
+	if err == nil {
+		for _, inc := range incidents {
+			if inc.IncidentID == incidentID {
+				currentIncident = inc
+				break
+			}
+		}
+	}
+
+	// If no current incident found, check resolved
+	if currentIncident.IncidentID == "" {
+		resolved, err := a.db.GetResolvedIncidents()
+		if err == nil {
+			for _, inc := range resolved {
+				if inc.IncidentID == incidentID {
+					currentIncident = inc
+					break
+				}
+			}
+		}
+	}
+
+	// Decision logic for alerts
+	shouldFetchAlerts := false
+	if len(existingAlerts) == 0 {
+		// First time fetching
+		shouldFetchAlerts = true
+	} else if metadata != nil {
+		// Check if alert count changed
+		if currentIncident.AlertCount != metadata.LastAlertCount {
+			shouldFetchAlerts = true
+		}
+		// Check if last fetch was more than 3 minutes ago
+		if metadata.LastFetchedAlerts != nil && time.Since(*metadata.LastFetchedAlerts) > 3*time.Minute && currentIncident.AlertCount > 0 {
+			shouldFetchAlerts = true
+		}
+	}
+
+	// Decision logic for notes
+	shouldFetchNotes := false
+	if len(existingNotes) == 0 {
+		// First time fetching
+		shouldFetchNotes = true
+	} else if metadata != nil {
+		// Check if incident was updated
+		if metadata.LastUpdatedAt != nil && currentIncident.UpdatedAt.After(*metadata.LastUpdatedAt) {
+			shouldFetchNotes = true
+		}
+		// Check if last fetch was more than 3 minutes ago
+		if metadata.LastFetchedNotes != nil && time.Since(*metadata.LastFetchedNotes) > 3*time.Minute {
+			shouldFetchNotes = true
+		}
+	}
+
+	// Use existing data if no fetch needed
+	if !shouldFetchAlerts && !shouldFetchNotes {
+		response.Alerts = existingAlerts
+		response.Notes = existingNotes
+		return response, nil
+	}
+
+	// Concurrent API calls if needed
 	type alertResult struct {
 		alerts []store.IncidentAlert
 		err    error
@@ -1511,22 +1584,37 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 	alertChan := make(chan alertResult, 1)
 	noteChan := make(chan noteResult, 1)
 
-	// Fetch alerts in goroutine
-	go func() {
-		alerts, err := a.client.GetIncidentAlerts(incidentID)
-		alertChan <- alertResult{alerts: alerts, err: err}
-	}()
+	// Fetch alerts if needed
+	if shouldFetchAlerts {
+		go func() {
+			alerts, err := a.client.GetIncidentAlerts(incidentID)
+			alertChan <- alertResult{alerts: alerts, err: err}
+		}()
+	} else {
+		// Use existing alerts
+		go func() {
+			alertChan <- alertResult{alerts: existingAlerts, err: nil}
+		}()
+	}
 
-	// Fetch notes in goroutine
-	go func() {
-		notes, err := a.client.GetIncidentNotes(incidentID)
-		noteChan <- noteResult{notes: notes, err: err}
-	}()
+	// Fetch notes if needed
+	if shouldFetchNotes {
+		go func() {
+			notes, err := a.client.GetIncidentNotes(incidentID)
+			noteChan <- noteResult{notes: notes, err: err}
+		}()
+	} else {
+		// Use existing notes
+		go func() {
+			noteChan <- noteResult{notes: existingNotes, err: nil}
+		}()
+	}
 
 	// Wait for both results with timeout
 	timeout := time.After(30 * time.Second)
 	var alertsReceived, notesReceived bool
 	var errors []string
+	var fetchedAlertsSuccess, fetchedNotesSuccess bool
 
 	for !alertsReceived || !notesReceived {
 		select {
@@ -1535,8 +1623,19 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 			if alertRes.err != nil {
 				errors = append(errors, fmt.Sprintf("alerts: %v", alertRes.err))
 				a.logger.Error(fmt.Sprintf("Failed to fetch alerts for %s: %v", incidentID, alertRes.err))
+				// Use stale data on error
+				response.Alerts = existingAlerts
 			} else {
 				response.Alerts = alertRes.alerts
+				if shouldFetchAlerts {
+					// Convert to database types and store
+					dbAlerts := convertStoreToDBalerts(alertRes.alerts)
+					if err := a.db.StoreIncidentAlerts(incidentID, dbAlerts); err != nil {
+						a.logger.Error(fmt.Sprintf("Failed to store alerts: %v", err))
+					} else {
+						fetchedAlertsSuccess = true
+					}
+				}
 			}
 
 		case noteRes := <-noteChan:
@@ -1544,8 +1643,19 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 			if noteRes.err != nil {
 				errors = append(errors, fmt.Sprintf("notes: %v", noteRes.err))
 				a.logger.Error(fmt.Sprintf("Failed to fetch notes for %s: %v", incidentID, noteRes.err))
+				// Use stale data on error
+				response.Notes = existingNotes
 			} else {
 				response.Notes = noteRes.notes
+				if shouldFetchNotes {
+					// Convert to database types and store
+					dbNotes := convertStoreToDbnotes(noteRes.notes)
+					if err := a.db.StoreIncidentNotes(incidentID, dbNotes); err != nil {
+						a.logger.Error(fmt.Sprintf("Failed to store notes: %v", err))
+					} else {
+						fetchedNotesSuccess = true
+					}
+				}
 			}
 
 		case <-timeout:
@@ -1554,6 +1664,27 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 			}
 			alertsReceived = true
 			notesReceived = true
+			// Use whatever existing data we have
+			if !alertsReceived {
+				response.Alerts = existingAlerts
+			}
+			if !notesReceived {
+				response.Notes = existingNotes
+			}
+		}
+	}
+
+	// Update metadata if any successful fetches
+	if (fetchedAlertsSuccess || fetchedNotesSuccess) && currentIncident.IncidentID != "" {
+		err := a.db.UpdateSidebarMetadata(
+			incidentID,
+			currentIncident.AlertCount,
+			currentIncident.UpdatedAt,
+			fetchedAlertsSuccess,
+			fetchedNotesSuccess,
+		)
+		if err != nil {
+			a.logger.Error(fmt.Sprintf("Failed to update sidebar metadata: %v", err))
 		}
 	}
 
@@ -1562,40 +1693,99 @@ func (a *App) GetIncidentSidebarData(incidentID string) (*store.IncidentSidebarD
 		response.Error = strings.Join(errors, "; ")
 	}
 
-	// Cache the response
-	a.sidebarDataCacheMu.Lock()
-	if a.sidebarDataCache == nil {
-		a.sidebarDataCache = make(map[string]*store.IncidentSidebarData)
-	}
-	a.sidebarDataCache[incidentID] = response
-	a.sidebarDataCacheMu.Unlock()
-
-	// Clean old cache entries periodically (in background)
-	go a.cleanSidebarCache()
-
 	return response, nil
 }
 
-// cleanSidebarCache removes cache entries older than 5 minutes
-func (a *App) cleanSidebarCache() {
-	// Simple cache cleanup - in production you'd track timestamps
-	time.Sleep(5 * time.Minute)
+func convertDBToStoreAlerts(dbAlerts []database.SidebarAlert) []store.IncidentAlert {
+	alerts := make([]store.IncidentAlert, len(dbAlerts))
+	for i, dbAlert := range dbAlerts {
+		alert := store.IncidentAlert{
+			ID:          dbAlert.ID,
+			Summary:     dbAlert.Summary,
+			Status:      dbAlert.Status,
+			CreatedAt:   dbAlert.CreatedAt,
+			ServiceName: dbAlert.ServiceName,
+			Links:       []store.AlertLink{},
+		}
 
-	a.sidebarDataCacheMu.Lock()
-	defer a.sidebarDataCacheMu.Unlock()
+		// Deserialize links from JSON
+		if dbAlert.Links != "" {
+			json.Unmarshal([]byte(dbAlert.Links), &alert.Links)
+		}
 
-	// For simplicity, clear entire cache after 5 minutes
-	// In production, track individual entry timestamps
-	a.sidebarDataCache = make(map[string]*store.IncidentSidebarData)
+		alerts[i] = alert
+	}
+	return alerts
 }
 
-// ClearIncidentSidebarCache clears cached sidebar data for a specific incident
-func (a *App) ClearIncidentSidebarCache(incidentID string) {
-	a.sidebarDataCacheMu.Lock()
-	defer a.sidebarDataCacheMu.Unlock()
+// Helper function to convert store alerts to database alerts
+func convertStoreToDBalerts(storeAlerts []store.IncidentAlert) []database.SidebarAlert {
+	dbAlerts := make([]database.SidebarAlert, len(storeAlerts))
+	for i, storeAlert := range storeAlerts {
+		// Serialize links to JSON
+		linksJSON, _ := json.Marshal(storeAlert.Links)
 
-	if a.sidebarDataCache != nil {
-		delete(a.sidebarDataCache, incidentID)
+		dbAlerts[i] = database.SidebarAlert{
+			ID:          storeAlert.ID,
+			Summary:     storeAlert.Summary,
+			Status:      storeAlert.Status,
+			CreatedAt:   storeAlert.CreatedAt,
+			ServiceName: storeAlert.ServiceName,
+			Links:       string(linksJSON),
+		}
+	}
+	return dbAlerts
+}
+
+// Helper function to convert database notes to store notes
+func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote {
+	notes := make([]store.IncidentNote, len(dbNotes))
+	for i, dbNote := range dbNotes {
+		notes[i] = store.IncidentNote{
+			ID:        dbNote.ID,
+			Content:   dbNote.Content,
+			CreatedAt: dbNote.CreatedAt,
+			UserName:  dbNote.UserName,
+		}
+	}
+	return notes
+}
+
+// Helper function to convert store notes to database notes
+func convertStoreToDbnotes(storeNotes []store.IncidentNote) []database.SidebarNote {
+	dbNotes := make([]database.SidebarNote, len(storeNotes))
+	for i, storeNote := range storeNotes {
+		dbNotes[i] = database.SidebarNote{
+			ID:        storeNote.ID,
+			Content:   storeNote.Content,
+			CreatedAt: storeNote.CreatedAt,
+			UserName:  storeNote.UserName,
+		}
+	}
+	return dbNotes
+}
+
+func (a *App) cleanupOldSidebarData() {
+	ticker := time.NewTicker(24 * time.Hour) // Run daily
+	defer ticker.Stop()
+
+	a.shutdownWg.Add(1)
+	defer a.shutdownWg.Done()
+
+	for {
+		select {
+		case <-a.shutdownChan:
+			a.logger.Info("Sidebar cleanup routine stopped by shutdown signal")
+			return
+		case <-ticker.C:
+			cutoffDate := time.Now().Add(-30 * 24 * time.Hour) // 30 days ago
+
+			if err := a.db.CleanupOldSidebarData(cutoffDate); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to cleanup old sidebar data: %v", err))
+			} else {
+				a.logger.Info("Successfully cleaned up old sidebar data")
+			}
+		}
 	}
 }
 

@@ -222,7 +222,7 @@ func (c *Client) queueRequest(reqType string, ctx context.Context, options inter
 		Options:    options,
 		ResultChan: make(chan APIResponse, 1),
 	}
-	
+
 	// Send request to queue with longer timeout
 	select {
 	case c.apiQueue.requestChan <- req:
@@ -231,11 +231,11 @@ func (c *Client) queueRequest(reqType string, ctx context.Context, options inter
 	case <-time.After(30 * time.Second):
 		// Log queue stats for debugging - USE ALL VARIABLES
 		total, failed, pending := c.GetAPIStats()
-		c.logger(fmt.Sprintf("Queue timeout: type=%s, pending=%d, total=%d, failed=%d", 
+		c.logger(fmt.Sprintf("Queue timeout: type=%s, pending=%d, total=%d, failed=%d",
 			reqType, pending, total, failed))
 		return nil, fmt.Errorf("timeout queueing %s request (queue may be full)", reqType)
 	}
-	
+
 	// Wait for response with extended timeout for resolved incidents
 	timeout := 60 * time.Second
 	if strings.Contains(reqType, "ListIncidents") {
@@ -249,7 +249,7 @@ func (c *Client) queueRequest(reqType string, ctx context.Context, options inter
 			}
 		}
 	}
-	
+
 	select {
 	case resp := <-req.ResultChan:
 		return resp.Data, resp.Error
@@ -257,7 +257,7 @@ func (c *Client) queueRequest(reqType string, ctx context.Context, options inter
 		return nil, fmt.Errorf("context cancelled waiting for %s response", reqType)
 	case <-time.After(timeout):
 		total, failed, pending := c.GetAPIStats()
-		c.logger(fmt.Sprintf("Response timeout: type=%s, timeout=%v, pending=%d, total=%d, failed=%d", 
+		c.logger(fmt.Sprintf("Response timeout: type=%s, timeout=%v, pending=%d, total=%d, failed=%d",
 			reqType, timeout, pending, total, failed))
 		return nil, fmt.Errorf("timeout waiting for %s API response after %v", reqType, timeout)
 	}
@@ -655,7 +655,7 @@ func (c *Client) GetIncidentNotes(incidentID string) ([]IncidentNote, error) {
 		if note == nil {
 			continue
 		}
-		
+
 		convertedNote := IncidentNote{
 			ID:        note.ID,
 			Content:   note.Content,
@@ -682,7 +682,6 @@ func getString(m map[string]interface{}, key string) string {
 	}
 	return ""
 }
-
 
 // GetAPIStats returns current API queue statistics
 func (c *Client) GetAPIStats() (totalCalls int64, failedCalls int64, pendingRequests int) {
