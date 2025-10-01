@@ -644,18 +644,14 @@ func (c *Client) GetIncidentNotes(incidentID string) ([]IncidentNote, error) {
 		return nil, fmt.Errorf("failed to fetch incident notes: %w", err)
 	}
 
-	// The response is a slice of IncidentNote pointers
-	resp, ok := result.([]*pagerduty.IncidentNote)
+	// The response is a slice of IncidentNote values (not pointers)
+	resp, ok := result.([]pagerduty.IncidentNote)
 	if !ok {
 		return nil, fmt.Errorf("unexpected response type for notes")
 	}
 
 	var notes []IncidentNote
 	for _, note := range resp {
-		if note == nil {
-			continue
-		}
-
 		convertedNote := IncidentNote{
 			ID:        note.ID,
 			Content:   note.Content,
