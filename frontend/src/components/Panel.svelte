@@ -3,6 +3,7 @@
     import type { database } from '../../wailsjs/go/models';
     import PanelAlerts from './PanelAlerts.svelte';
     import PanelNotes from './PanelNotes.svelte';
+    import { getServiceColor } from '../lib/serviceColors';
     
     type IncidentData = database.IncidentData;
     
@@ -14,6 +15,7 @@
     let startWidth = 0;
     let panelTab: 'alerts' | 'notes' = 'alerts';
     
+    $: serviceColor = $selectedIncident ? getServiceColor($selectedIncident.service_summary || 'Unknown Service') : '#6b7280';
     
     // Handle tab switching behavior
     $: if ($activeTab) {
@@ -89,7 +91,7 @@
             <div class="incident-info">
                 <div class="incident-title-section">
                     <h4>{$selectedIncident.title}</h4>
-                    <span class="service-badge">{$selectedIncident.service_summary}</span>
+                    <span class="service-name" style="color: {serviceColor}">{$selectedIncident.service_summary}</span>
                 </div>
             </div>
             
@@ -173,6 +175,7 @@
         padding: 14px;
         border-bottom: 1px solid #e0e0e0;
         background: #fafafa;
+        flex-shrink: 0;
     }
     
     .panel-header h5 {
@@ -204,6 +207,7 @@
         padding: 16px;
         border-bottom: 1px solid #e0e0e0;
         background: #f9fafb;
+        flex-shrink: 0;
     }
     
     .incident-title-section h4 {
@@ -212,22 +216,21 @@
         font-weight: 600;
         color: #111827;
         line-height: 1.4;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     
-    .service-badge {
-        display: inline-block;
-        padding: 4px 10px;
-        background: #3b82f6;
-        color: white;
-        border-radius: 12px;
-        font-size: 12px;
+    .service-name {
+        font-size: 13px;
         font-weight: 500;
+        display: block;
     }
     
     .panel-tabs {
         display: flex;
         border-bottom: 1px solid #e0e0e0;
-        background: #f9fafb;
+        background: white;
+        flex-shrink: 0;
     }
     
     .panel-tab {
@@ -235,28 +238,28 @@
         padding: 12px 16px;
         background: transparent;
         border: none;
-        cursor: pointer;
+        border-bottom: 2px solid transparent;
         font-size: 14px;
         font-weight: 500;
         color: #6b7280;
-        border-bottom: 2px solid transparent;
+        cursor: pointer;
         transition: all 0.2s;
     }
     
     .panel-tab:hover {
+        background: #f9fafb;
         color: #374151;
-        background: rgba(255, 255, 255, 0.5);
     }
     
     .panel-tab.active {
         color: #3b82f6;
-        background: white;
         border-bottom-color: #3b82f6;
     }
     
     .panel-content {
         flex: 1;
         overflow-y: auto;
+        min-height: 0;
     }
     
     .panel-empty-state {
@@ -264,9 +267,9 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 100%;
-        padding: 32px;
+        padding: 48px 24px;
         color: #9ca3af;
+        text-align: center;
     }
     
     .panel-empty-state svg {
@@ -277,25 +280,6 @@
     .panel-empty-state p {
         margin: 0;
         font-size: 14px;
-        text-align: center;
         color: #6b7280;
-    }
-    
-    /* Custom scrollbar */
-    .panel-content::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    .panel-content::-webkit-scrollbar-track {
-        background: #f3f4f6;
-    }
-    
-    .panel-content::-webkit-scrollbar-thumb {
-        background: #d1d5db;
-        border-radius: 4px;
-    }
-    
-    .panel-content::-webkit-scrollbar-thumb:hover {
-        background: #9ca3af;
     }
 </style>
