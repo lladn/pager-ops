@@ -93,7 +93,7 @@ export async function loadIncidentSidebarData(incidentId: string) {
 
 // Lazy load sidebar data when panel opens and incident is selected
 export const shouldFetchSidebarData = derived(
-    [sidebarOpen, selectedIncidentID],
+    [panelOpen, selectedIncidentID],
     ([$open, $id]) => $open && $id !== null
 );
 
