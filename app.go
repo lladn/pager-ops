@@ -238,6 +238,7 @@ func NewApp() *App {
 		previousOpenIncidents: make(map[string]database.IncidentData),
 		shutdownChan:          make(chan struct{}),
 		latestResolvedDate:    time.Now().Add(-72 * time.Hour), // Initialize to 3 days ago
+		fetchingIncidents:     make(map[string]bool),          
 	}
 }
 

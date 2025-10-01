@@ -6,6 +6,46 @@
     
     export let incident: IncidentData;
     
+    // Draft storage in local component state (no backend)
+    let noteDraft = '';
+    let draftStore: Record<string, string> = {};
+    let lastIncidentId = '';
+    
+    // Watch for incident changes and load/save drafts
+    $: {
+        if (incident?.incident_id && incident.incident_id !== lastIncidentId) {
+            // Save current draft before switching
+            if (lastIncidentId && noteDraft.trim()) {
+                draftStore[lastIncidentId] = noteDraft;
+            }
+            
+            // Load draft for new incident
+            noteDraft = draftStore[incident.incident_id] || '';
+            lastIncidentId = incident.incident_id;
+        }
+    }
+    
+    // Save draft when typing
+    function saveDraft() {
+        if (incident?.incident_id) {
+            draftStore[incident.incident_id] = noteDraft;
+        }
+    }
+    
+    // Handle add note button (placeholder - no backend)
+    function handleAddNote() {
+        if (!noteDraft.trim()) return;
+        
+        // TODO: When backend is ready, call API here
+        alert('Note functionality will be connected to backend in future update.');
+        
+        // Clear draft after "adding"
+        noteDraft = '';
+        if (incident?.incident_id) {
+            delete draftStore[incident.incident_id];
+        }
+    }
+    
     function formatDate(date: Date | string): string {
         const d = typeof date === 'string' ? new Date(date) : date;
         return d.toLocaleString('en-US', {
@@ -25,6 +65,26 @@
 </script>
 
 <div class="notes-container">
+    <!-- Add Notes Section -->
+    <div class="add-notes-section">
+        <p class="section-title">Add Notes</p>
+        <textarea 
+            class="note-textarea" 
+            placeholder="Enter your note..."
+            bind:value={noteDraft}
+            on:input={saveDraft}
+        />
+        <button 
+            class="add-note-button" 
+            class:active={noteDraft.trim()}
+            on:click={handleAddNote}
+            disabled={!noteDraft.trim()}
+        >
+            Add Note
+        </button>
+    </div>
+
+    <!-- Existing Notes Display -->
     {#if $sidebarLoading}
         <!-- Loading skeletons -->
         <div class="skeleton-container">
@@ -47,9 +107,6 @@
             </button>
         </div>
     {:else if $sidebarData?.notes && $sidebarData.notes.length > 0}
-        <div class="notes-header">
-            <h6>Notes ({$sidebarData.notes.length})</h6>
-        </div>
         <div class="notes-list">
             {#each $sidebarData.notes as note}
                 <div class="note-item">
@@ -66,13 +123,7 @@
     {:else}
         <!-- Empty state -->
         <div class="notes-empty">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="12" y1="18" x2="12" y2="12"></line>
-                <line x1="9" y1="15" x2="15" y2="15"></line>
-            </svg>
-            <p>No notes found for this incident</p>
+            <p>No notes added yet</p>
         </div>
     {/if}
 </div>
@@ -82,15 +133,66 @@
         padding: 16px;
     }
     
-    .notes-header {
-        margin-bottom: 16px;
+    .add-notes-section {
+        margin-bottom: 24px;
     }
     
-    .notes-header h6 {
-        margin: 0;
-        font-size: 14px;
+    .section-title {
+        margin: 0 0 12px 0;
+        font-size: 12px;
         font-weight: 600;
-        color: #111827;
+        color: #6b7280;
+    }
+    
+    .note-textarea {
+        width: 100%;
+        min-height: 100px;
+        padding: 14px;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 15px;
+        font-family: inherit;
+        color: #374151;
+        resize: vertical;
+        margin-bottom: 12px;
+        box-sizing: border-box;
+        transition: all 0.2s ease;
+    }
+    
+    .note-textarea::placeholder {
+        color: #9ca3af;
+    }
+    
+    .note-textarea:focus {
+        outline: none;
+        background: #ffffff;
+        border-color: #d1d5db;
+    }
+    
+    .add-note-button {
+    padding: 4px 9px; 
+    background: transparent;
+    color: #d1d5db;  
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s ease;  
+    }
+    
+    .add-note-button:disabled {
+        cursor: not-allowed;
+    }
+    
+    .add-note-button.active {
+    color: #374151;  
+    cursor: pointer;
+    }
+    
+    .add-note-button.active:hover {
+        color: #111827; 
     }
     
     .notes-list {
@@ -103,59 +205,60 @@
         background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
-        padding: 12px;
+        padding: 14px;
     }
     
     .note-header {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         margin-bottom: 8px;
-        gap: 8px;
-        flex-wrap: wrap;
+        gap: 12px;
     }
     
     .note-author {
         font-weight: 500;
         color: #111827;
-        font-size: 13px;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
+        font-size: 14px;
     }
     
     .note-time {
-        color: #6b7280;
+        color: #9ca3af;
         font-size: 12px;
         flex-shrink: 0;
     }
     
     .note-content {
-        color: #374151;
+        color: #4b5563;
         font-size: 14px;
-        line-height: 1.5;
+        line-height: 1.6;
         white-space: pre-wrap;
         word-wrap: break-word;
-        overflow-wrap: break-word;
     }
     
     .skeleton-container {
-        background: white;
+        background: #f9fafb;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
-        padding: 12px;
+        padding: 14px;
         margin-bottom: 12px;
     }
     
     .skeleton-line {
-        height: 16px;
+        height: 14px;
         background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
         background-size: 200% 100%;
         animation: loading 1.5s infinite;
         border-radius: 4px;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
     }
     
     .skeleton-line.short {
         width: 60%;
+    }
+    
+    .skeleton-line:last-child {
+        margin-bottom: 0;
     }
     
     @keyframes loading {
@@ -167,10 +270,10 @@
         background: #fef2f2;
         border: 1px solid #fecaca;
         border-radius: 8px;
-        padding: 12px;
+        padding: 14px;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
     }
     
     .error-icon {
@@ -183,19 +286,19 @@
         margin: 0;
         color: #991b1b;
         font-size: 14px;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
     }
     
     .retry-button {
-        padding: 4px 12px;
+        padding: 6px 14px;
         background: #dc2626;
         color: white;
         border: none;
         border-radius: 4px;
-        font-size: 12px;
+        font-size: 13px;
+        font-weight: 500;
         cursor: pointer;
         flex-shrink: 0;
+        transition: background 0.2s ease;
     }
     
     .retry-button:hover {
@@ -203,23 +306,16 @@
     }
     
     .notes-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 32px 16px;
-        color: #9ca3af;
-    }
-    
-    .notes-empty svg {
-        margin-bottom: 12px;
-        opacity: 0.5;
+        border: 2px dashed #e5e7eb;
+        border-radius: 8px;
+        padding: 48px 20px;
+        text-align: center;
     }
     
     .notes-empty p {
         margin: 0;
-        font-size: 14px;
-        color: #6b7280;
-        font-weight: 500;
+        font-size: 15px;
+        color: #9ca3af;
+        font-weight: 400;
     }
 </style>
