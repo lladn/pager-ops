@@ -26,6 +26,8 @@ export function GetResolvedIncidents(arg1:Array<string>):Promise<Array<database.
 
 export function GetSelectedServices():Promise<Array<string>>;
 
+export function GetServiceConfigByServiceID(arg1:string):Promise<store.ServiceConfig>;
+
 export function GetServiceNameByID(arg1:string):Promise<string>;
 
 export function GetServicesConfig():Promise<store.ServicesConfig>;

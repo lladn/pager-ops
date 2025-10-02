@@ -66,26 +66,27 @@
     }
     
     async function removeService(service: store.ServiceConfig) {
-        try {
-            const config = $servicesConfig;
-            if (!config) return;
-            
-            config.services = config.services.filter(s => s.id !== service.id);
-            
-            if (config.services.length === 0) {
-                await RemoveServicesConfig();
-            } else {
-                const updatedConfig = JSON.stringify(config, null, 2);
-                await UploadServicesConfig(updatedConfig);
-            }
-            
-            await loadServicesConfig();
-            successMessage = 'Service removed successfully';
-            setTimeout(() => successMessage = '', 3000);
-        } catch (err) {
-            errorMessage = 'Failed to remove service';
+    try {
+        const config = $servicesConfig;
+        if (!config) return;
+        
+        // Filter out the service being removed
+        config.services = config.services.filter(s => s.id !== service.id);
+        
+        if (config.services.length === 0) {
+            await RemoveServicesConfig();
+        } else {
+            const updatedConfig = JSON.stringify(config, null, 2);
+            await UploadServicesConfig(updatedConfig);
         }
+        
+        await loadServicesConfig();
+        successMessage = 'Service removed successfully. Associated notekit configurations will be cleaned up.';
+        setTimeout(() => successMessage = '', 3000);
+    } catch (err) {
+        errorMessage = 'Failed to remove service';
     }
+}
     
     async function toggleServiceDisabled(service: store.ServiceConfig) {
         try {
