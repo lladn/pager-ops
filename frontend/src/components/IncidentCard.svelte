@@ -1,6 +1,6 @@
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
-    import { formatTime, selectedIncident } from '../stores/incidents';
+    import { formatTime, selectedIncident, userAcknowledgedIncidents, markIncidentAcknowledged } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     import { getServiceColor } from '../lib/serviceColors';
     
@@ -12,6 +12,19 @@
     $: statusLabel = getStatusLabel(incident.status);
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     $: isSelected = $selectedIncident?.incident_id === incident.incident_id;
+    
+    // Acknowledgment button visibility logic
+    $: userAck = $userAcknowledgedIncidents.get(incident.incident_id);
+    $: showAckButton = 
+        incident.status !== 'resolved' && 
+        (
+            !userAck || // Never acknowledged
+            new Date(incident.updated_at) > new Date(userAck.updated_at) // Incident updated after user ack'd
+        );
+    
+    // Feedback states for action buttons
+    let copyFeedback = '';
+    let openFeedback = '';
     
     function getStatusColor(status: string): string {
         switch (status) {
@@ -42,7 +55,11 @@
     function openIncident(event: MouseEvent) {
         event.stopPropagation();
         if (incident.html_url) {
+            openFeedback = 'Opening...';
             BrowserOpenURL(incident.html_url);
+            setTimeout(() => {
+                openFeedback = '';
+            }, 1500);
         }
     }
     
@@ -51,11 +68,29 @@
         if (incident.html_url) {
             const linkText = `[${incident.title}](${incident.html_url})`;
             navigator.clipboard.writeText(linkText).then(() => {
-                console.log('Link copied to clipboard');
+                copyFeedback = 'Copied!';
+                setTimeout(() => {
+                    copyFeedback = '';
+                }, 1500);
             }).catch(err => {
                 console.error('Failed to copy: ', err);
+                copyFeedback = 'Failed';
+                setTimeout(() => {
+                    copyFeedback = '';
+                }, 1500);
             });
         }
+    }
+    
+    function handleAcknowledge(event: MouseEvent) {
+        event.stopPropagation();
+        
+        // Mark as acknowledged at current updated_at timestamp
+        markIncidentAcknowledged(incident.incident_id, incident.updated_at);
+        
+        console.log(`Incident ${incident.incident_id} acknowledged at ${incident.updated_at}`);
+        
+        // TODO: Backend implementation will be added later
     }
     
     function handleCardClick() {
@@ -68,17 +103,25 @@
 <div class="incident-card" class:selected={isSelected} on:click={handleCardClick}>
     <div class="action-buttons">
         <button class="action-button" on:click={openIncident} title="Open incident">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                <polyline points="15 3 21 3 21 9"></polyline>
-                <line x1="10" y1="14" x2="21" y2="3"></line>
-            </svg>
+            {#if openFeedback}
+                <span class="feedback-text">{openFeedback}</span>
+            {:else}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                </svg>
+            {/if}
         </button>
         <button class="action-button" on:click={copyIncidentLink} title="Copy link">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
-            </svg>
+            {#if copyFeedback}
+                <span class="feedback-text">{copyFeedback}</span>
+            {:else}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+            {/if}
         </button>
     </div>
     
@@ -109,6 +152,18 @@
             {#if incident.incident_number}
                 <span class="separator">•</span>
                 <span class="incident-number">#{incident.incident_number}</span>
+            {/if}
+            
+            {#if showAckButton}
+                <span class="acknowledge-spacer"></span>
+                <button 
+                    class="acknowledge-button" 
+                    on:click={handleAcknowledge}
+                    title="Acknowledge incident"
+                >
+                    <span class="ack-icon">!</span>
+                    Acknowledge
+                </button>
             {/if}
         </div>
     </div>
@@ -143,30 +198,59 @@
         top: 12px;
         right: 12px;
         display: flex;
-        gap: 6px;
+        gap: 4px;
         z-index: 1;
     }
     
     .action-button {
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    cursor: pointer;
-    color: #374151;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: color 0.2s ease;
+        padding: 4px;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: #9ca3af;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+        min-width: 24px;
+        min-height: 24px;
     }
     
     .action-button:hover {
-        color: #111; 
+        background: #f3f4f6;
+        border-color: #e5e7eb;
+        color: #6b7280;
+        transform: translateY(-1px);
+    }
+    
+    .action-button:active {
+        transform: translateY(0);
+        background: #e5e7eb;
+    }
+    
+    .feedback-text {
+        font-size: 10px;
+        font-weight: 600;
+        color: #059669;
+        white-space: nowrap;
+        animation: fadeIn 0.2s ease;
+    }
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: scale(0.9);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
     }
     
     .incident-header {
         margin-bottom: 10px;
-        padding-right: 70px;
+        padding-right: 60px;
     }
     
     .incident-title {
@@ -236,5 +320,46 @@
     .incident-number {
         font-weight: 500;
         color: #4b5563;
+    }
+    
+    /* Acknowledge button styles - RED theme */
+    .acknowledge-spacer {
+        flex: 1;
+        min-width: 8px;
+    }
+    
+    .acknowledge-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #dc2626;
+        background: transparent;
+        border: 1px solid #fecaca;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        margin-left: auto;
+    }
+    
+    .acknowledge-button:hover {
+        background: #fef2f2;
+        border-color: #dc2626;
+        color: #b91c1c;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(220, 38, 38, 0.1);
+    }
+    
+    .acknowledge-button:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(220, 38, 38, 0.1);
+    }
+    
+    .ack-icon {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
     }
 </style>

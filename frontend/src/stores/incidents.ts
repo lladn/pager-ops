@@ -334,3 +334,65 @@ export function getUrgency(incident: IncidentData): string {
     if (!incident.urgency) return 'low';
     return incident.urgency.toLowerCase();
 }
+
+
+// Track user acknowledgments: incident_id -> {updated_at: timestamp when user clicked}
+export const userAcknowledgedIncidents = writable<Map<string, {updated_at: string}>>(new Map());
+
+// Load acknowledgments from localStorage on init
+function loadUserAcknowledgments(): Map<string, {updated_at: string}> {
+    try {
+        const stored = localStorage.getItem('user_acknowledged_incidents');
+        if (stored) {
+            const obj = JSON.parse(stored);
+            return new Map(Object.entries(obj));
+        }
+    } catch (err) {
+        console.error('Failed to load user acknowledgments:', err);
+    }
+    return new Map();
+}
+
+// Initialize acknowledgments from localStorage
+userAcknowledgedIncidents.set(loadUserAcknowledgments());
+
+// Mark incident as acknowledged at current updated_at timestamp
+export function markIncidentAcknowledged(incidentId: string, incidentUpdatedAt: string) {
+    userAcknowledgedIncidents.update(acks => {
+        // Store the incident's updated_at timestamp when user clicked
+        acks.set(incidentId, { updated_at: incidentUpdatedAt });
+        
+        // Persist to localStorage
+        try {
+            const obj: Record<string, {updated_at: string}> = {};
+            acks.forEach((value, key) => {
+                obj[key] = value;
+            });
+            localStorage.setItem('user_acknowledged_incidents', JSON.stringify(obj));
+        } catch (err) {
+            console.error('Failed to save user acknowledgments:', err);
+        }
+        
+        return acks;
+    });
+}
+
+// Optional: Cleanup resolved incidents from acknowledgment storage
+export function cleanupResolvedAcknowledgments(resolvedIncidentIds: string[]) {
+    userAcknowledgedIncidents.update(acks => {
+        resolvedIncidentIds.forEach(id => acks.delete(id));
+        
+        // Persist to localStorage
+        try {
+            const obj: Record<string, {updated_at: string}> = {};
+            acks.forEach((value, key) => {
+                obj[key] = value;
+            });
+            localStorage.setItem('user_acknowledged_incidents', JSON.stringify(obj));
+        } catch (err) {
+            console.error('Failed to cleanup acknowledgments:', err);
+        }
+        
+        return acks;
+    });
+}
