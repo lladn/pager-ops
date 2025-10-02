@@ -155,11 +155,43 @@ export namespace store {
 		    return a;
 		}
 	}
+	export class NoteTag {
+	    tag_name: string;
+	    selected_values: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NoteTag(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tag_name = source["tag_name"];
+	        this.selected_values = source["selected_values"];
+	    }
+	}
+	export class NoteResponse {
+	    question: string;
+	    answer: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NoteResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.question = source["question"];
+	        this.answer = source["answer"];
+	    }
+	}
 	export class IncidentNote {
 	    id: string;
 	    content: string;
 	    created_at: string;
 	    user_name?: string;
+	    service_id?: string;
+	    responses?: NoteResponse[];
+	    tags?: NoteTag[];
+	    freeform_content?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new IncidentNote(source);
@@ -171,7 +203,29 @@ export namespace store {
 	        this.content = source["content"];
 	        this.created_at = source["created_at"];
 	        this.user_name = source["user_name"];
+	        this.service_id = source["service_id"];
+	        this.responses = this.convertValues(source["responses"], NoteResponse);
+	        this.tags = this.convertValues(source["tags"], NoteTag);
+	        this.freeform_content = source["freeform_content"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class IncidentSidebarData {
 	    incident_id: string;
@@ -211,10 +265,61 @@ export namespace store {
 		    return a;
 		}
 	}
+	
+	
+	export class TagConfig {
+	    name: string;
+	    multiple?: string[];
+	    single?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TagConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.multiple = source["multiple"];
+	        this.single = source["single"];
+	    }
+	}
+	export class ServiceTypes {
+	    questions?: string[];
+	    tags?: TagConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceTypes(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.questions = source["questions"];
+	        this.tags = this.convertValues(source["tags"], TagConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ServiceConfig {
 	    id: any;
 	    name: string;
 	    disabled?: boolean;
+	    types?: ServiceTypes;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServiceConfig(source);
@@ -225,8 +330,28 @@ export namespace store {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.disabled = source["disabled"];
+	        this.types = this.convertValues(source["types"], ServiceTypes);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class ServicesConfig {
 	    services: ServiceConfig[];
 	
