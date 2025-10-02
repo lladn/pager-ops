@@ -1742,12 +1742,32 @@ func convertStoreToDBalerts(storeAlerts []store.IncidentAlert) []database.Sideba
 func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote {
 	notes := make([]store.IncidentNote, len(dbNotes))
 	for i, dbNote := range dbNotes {
-		notes[i] = store.IncidentNote{
-			ID:        dbNote.ID,
-			Content:   dbNote.Content,
-			CreatedAt: dbNote.CreatedAt,
-			UserName:  dbNote.UserName,
+		note := store.IncidentNote{
+			ID:              dbNote.ID,
+			Content:         dbNote.Content,
+			CreatedAt:       dbNote.CreatedAt,
+			UserName:        dbNote.UserName,
+			ServiceID:       dbNote.ServiceID,
+			FreeformContent: dbNote.FreeformContent,
 		}
+		
+		// Deserialize responses from JSON
+		if dbNote.Responses != "" {
+			var responses []store.NoteResponse
+			if err := json.Unmarshal([]byte(dbNote.Responses), &responses); err == nil {
+				note.Responses = responses
+			}
+		}
+		
+		// Deserialize tags from JSON
+		if dbNote.Tags != "" {
+			var tags []store.NoteTag
+			if err := json.Unmarshal([]byte(dbNote.Tags), &tags); err == nil {
+				note.Tags = tags
+			}
+		}
+		
+		notes[i] = note
 	}
 	return notes
 }
@@ -1756,14 +1776,62 @@ func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote 
 func convertStoreToDbnotes(storeNotes []store.IncidentNote) []database.SidebarNote {
 	dbNotes := make([]database.SidebarNote, len(storeNotes))
 	for i, storeNote := range storeNotes {
-		dbNotes[i] = database.SidebarNote{
-			ID:        storeNote.ID,
-			Content:   storeNote.Content,
-			CreatedAt: storeNote.CreatedAt,
-			UserName:  storeNote.UserName,
+		dbNote := database.SidebarNote{
+			ID:              storeNote.ID,
+			Content:         storeNote.Content,
+			CreatedAt:       storeNote.CreatedAt,
+			UserName:        storeNote.UserName,
+			ServiceID:       storeNote.ServiceID,
+			FreeformContent: storeNote.FreeformContent,
 		}
+		
+		// Serialize responses to JSON
+		if len(storeNote.Responses) > 0 {
+			if responsesJSON, err := json.Marshal(storeNote.Responses); err == nil {
+				dbNote.Responses = string(responsesJSON)
+			}
+		}
+		
+		// Serialize tags to JSON
+		if len(storeNote.Tags) > 0 {
+			if tagsJSON, err := json.Marshal(storeNote.Tags); err == nil {
+				dbNote.Tags = string(tagsJSON)
+			}
+		}
+		
+		dbNotes[i] = dbNote
 	}
 	return dbNotes
+}
+
+func (a *App) GetServiceConfigByServiceID(serviceID string) (*store.ServiceConfig, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.servicesConfig == nil {
+		return nil, fmt.Errorf("no services configuration loaded")
+	}
+
+	for _, service := range a.servicesConfig.Services {
+		switch id := service.ID.(type) {
+		case string:
+			if id == serviceID {
+				return &service, nil
+			}
+		case []interface{}:
+			for _, sid := range id {
+				if strID, ok := sid.(string); ok && strID == serviceID {
+					return &service, nil
+				}
+			}
+		case float64:
+			if fmt.Sprintf("%.0f", id) == serviceID {
+				return &service, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("service not found: %s", serviceID)
 }
 
 func (a *App) cleanupOldSidebarData() {

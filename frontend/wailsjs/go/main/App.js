@@ -46,6 +46,10 @@ export function GetSelectedServices() {
   return window['go']['main']['App']['GetSelectedServices']();
 }
 
+export function GetServiceConfigByServiceID(arg1) {
+  return window['go']['main']['App']['GetServiceConfigByServiceID'](arg1);
+}
+
 export function GetServiceNameByID(arg1) {
   return window['go']['main']['App']['GetServiceNameByID'](arg1);
 }
