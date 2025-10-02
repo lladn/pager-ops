@@ -41,12 +41,16 @@ type SidebarAlert struct {
 	Links       string `json:"links,omitempty"` // JSON string
 }
 
-// SidebarNote represents note data stored in database  
+// SidebarNote represents note data stored in database  // SidebarNote represents note data stored in database  
 type SidebarNote struct {
-	ID        string `json:"id"`
-	Content   string `json:"content"`
-	CreatedAt string `json:"created_at"`
-	UserName  string `json:"user_name,omitempty"`
+	ID              string `json:"id"`
+	Content         string `json:"content"`
+	CreatedAt       string `json:"created_at"`
+	UserName        string `json:"user_name,omitempty"`
+	ServiceID       string `json:"service_id,omitempty"`
+	Responses       string `json:"responses,omitempty"`        // JSON string
+	Tags            string `json:"tags,omitempty"`             // JSON string
+	FreeformContent string `json:"freeform_content,omitempty"`
 }
 
 // SidebarMetadata represents metadata for sidebar data
@@ -188,10 +192,10 @@ func (db *DB) StoreIncidentNotes(incidentID string, notes []SidebarNote) error {
 		return fmt.Errorf("failed to delete existing notes: %w", err)
 	}
 	
-	// Prepare insert statement
+	// Prepare insert statement with enhanced fields
 	stmt, err := tx.Prepare(`
-		INSERT INTO incident_notes (id, incident_id, content, created_at, user_name)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO incident_notes (id, incident_id, content, created_at, user_name, service_id, responses, tags, freeform_content)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
@@ -206,6 +210,10 @@ func (db *DB) StoreIncidentNotes(incidentID string, notes []SidebarNote) error {
 			note.Content,
 			note.CreatedAt,
 			note.UserName,
+			note.ServiceID,
+			note.Responses,
+			note.Tags,
+			note.FreeformContent,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert note %s: %w", note.ID, err)
@@ -224,7 +232,7 @@ func (db *DB) GetIncidentNotes(incidentID string) ([]SidebarNote, error) {
 	defer db.mu.RUnlock()
 	
 	query := `
-		SELECT id, content, created_at, user_name
+		SELECT id, content, created_at, user_name, service_id, responses, tags, freeform_content
 		FROM incident_notes
 		WHERE incident_id = ?
 		ORDER BY created_at DESC
@@ -239,15 +247,34 @@ func (db *DB) GetIncidentNotes(incidentID string) ([]SidebarNote, error) {
 	var notes []SidebarNote
 	for rows.Next() {
 		var note SidebarNote
+		var serviceID, responses, tags, freeformContent sql.NullString
 		
 		err := rows.Scan(
 			&note.ID,
 			&note.Content,
 			&note.CreatedAt,
 			&note.UserName,
+			&serviceID,
+			&responses,
+			&tags,
+			&freeformContent,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
+		}
+		
+		// Handle nullable fields
+		if serviceID.Valid {
+			note.ServiceID = serviceID.String
+		}
+		if responses.Valid {
+			note.Responses = responses.String
+		}
+		if tags.Valid {
+			note.Tags = tags.String
+		}
+		if freeformContent.Valid {
+			note.FreeformContent = freeformContent.String
 		}
 		
 		notes = append(notes, note)
@@ -458,7 +485,7 @@ func (db *DB) createSidebarTables() error {
 	CREATE INDEX IF NOT EXISTS idx_alerts_incident ON incident_alerts(incident_id);
 	`
 	
-	// Create incident_notes table  
+	// Create incident_notes table with enhanced schema for notekit
 	notesTable := `
 	CREATE TABLE IF NOT EXISTS incident_notes (
 		id TEXT PRIMARY KEY,
@@ -466,9 +493,14 @@ func (db *DB) createSidebarTables() error {
 		content TEXT,
 		created_at TEXT,
 		user_name TEXT,
+		service_id TEXT,
+		responses TEXT,
+		tags TEXT,
+		freeform_content TEXT,
 		FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_notes_incident ON incident_notes(incident_id);
+	CREATE INDEX IF NOT EXISTS idx_notes_service ON incident_notes(service_id);
 	`
 	
 	// Create incident_sidebar_metadata table
