@@ -4,11 +4,13 @@
         selectedServices, 
         loadOpenIncidents, 
         loadResolvedIncidents } from '../stores/incidents';
-    import { SetSelectedServices } from '../../wailsjs/go/main/App';
+    import { SetSelectedServices, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
+    import { onMount } from 'svelte';
     
     let isOpen = false;
     let filterText = 'All Services';
+    let isAssignedMode = false;
     
     // Local state for immediate UI updates
     let localSelectedServices: string[] = [];
@@ -17,21 +19,29 @@
     $: localSelectedServices = [...$selectedServices];
     
     $: if ($servicesConfig) {
-        updateFilterText(localSelectedServices);
+        updateFilterText(localSelectedServices, isAssignedMode);
     }
     
-    function updateFilterText(selected: string[]) {
+    onMount(async () => {
+        try {
+            isAssignedMode = await GetFilterByUser();
+            updateFilterText(localSelectedServices, isAssignedMode);
+        } catch (err) {
+            console.error('Failed to get filter mode:', err);
+        }
+    });
+    
+    function updateFilterText(selected: string[], assignedMode: boolean) {
         if (!$servicesConfig) {
-            filterText = 'All Services';
+            filterText = assignedMode ? 'Assigned' : 'All Services';
             return;
         }
         
         const allServiceIds = getAllServiceIds();
+        const hasServiceFilter = selected.length > 0 && selected.length < allServiceIds.length;
         
-        if (selected.length === 0 || selected.length === allServiceIds.length) {
-            filterText = 'All Services';
-        } else {
-            // Count how many service groups are selected
+        if (assignedMode && hasServiceFilter) {
+            // Both filters active
             let selectedGroups = 0;
             for (const service of $servicesConfig.services) {
                 if (isServiceGroupSelected(service, selected)) {
@@ -40,12 +50,32 @@
             }
             
             if (selectedGroups === 1) {
-                // Find the selected service group
+                const selectedService = $servicesConfig.services.find(s => isServiceGroupSelected(s, selected));
+                filterText = `Assigned + ${selectedService?.name || 'Service'}`;
+            } else {
+                filterText = `Assigned + ${selectedGroups} Services`;
+            }
+        } else if (assignedMode) {
+            // Only assigned mode
+            filterText = 'Assigned';
+        } else if (hasServiceFilter) {
+            // Only service filter
+            let selectedGroups = 0;
+            for (const service of $servicesConfig.services) {
+                if (isServiceGroupSelected(service, selected)) {
+                    selectedGroups++;
+                }
+            }
+            
+            if (selectedGroups === 1) {
                 const selectedService = $servicesConfig.services.find(s => isServiceGroupSelected(s, selected));
                 filterText = selectedService?.name || 'Unknown Service';
             } else {
                 filterText = `${selectedGroups} Services`;
             }
+        } else {
+            // No filters
+            filterText = 'All Services';
         }
     }
     
@@ -69,6 +99,23 @@
             }
         }
         return allIds;
+    }
+    
+    async function toggleAssignedMode() {
+        const newMode = !isAssignedMode;
+        isAssignedMode = newMode;
+        
+        try {
+            await SetFilterByUser(newMode);
+            updateFilterText(localSelectedServices, newMode);
+            await loadOpenIncidents();
+            await loadResolvedIncidents();
+        } catch (err) {
+            console.error('Failed to toggle assigned mode:', err);
+            // Revert on error
+            isAssignedMode = !newMode;
+            updateFilterText(localSelectedServices, !newMode);
+        }
     }
     
     async function selectAllServices() {
@@ -139,6 +186,20 @@
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="dropdown-backdrop" on:click={closeDropdown}></div>
         <div class="dropdown-menu">
+            <!-- Assigned to Me - Added at top -->
+            <button class="dropdown-item" on:click={toggleAssignedMode}>
+                <span class="checkbox">
+                    {#if isAssignedMode}
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                    {/if}
+                </span>
+                <span>Assigned</span>
+            </button>
+            
+            <div class="dropdown-divider"></div>
+            
             {#if $servicesConfig && $servicesConfig.services.length > 0}
                 <button class="dropdown-item" on:click={selectAllServices}>
                     <span class="checkbox">
@@ -208,7 +269,7 @@
     
     .chevron {
         transition: transform 0.2s;
-        color: #6b7280;
+        flex-shrink: 0;
     }
     
     .chevron.rotated {
@@ -221,7 +282,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 9;
+        z-index: 999;
     }
     
     .dropdown-menu {
@@ -231,47 +292,52 @@
         background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
-        box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         min-width: 200px;
-        max-height: 300px;
+        max-height: 400px;
         overflow-y: auto;
-        z-index: 10;
+        z-index: 1000;
     }
     
     .dropdown-item {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
         width: 100%;
-        padding: 10px 16px;
-        background: none;
+        padding: 10px 12px;
         border: none;
+        background: none;
         cursor: pointer;
         font-size: 14px;
         color: #374151;
         text-align: left;
-        transition: background 0.2s;
+        transition: background-color 0.15s;
     }
     
     .dropdown-item:hover {
-        background: #f9fafb;
+        background: #f3f4f6;
     }
     
     .checkbox {
         width: 16px;
         height: 16px;
+        border: 2px solid #d1d5db;
+        border-radius: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #10b981;
+        flex-shrink: 0;
+    }
+    
+    .dropdown-item:hover .checkbox {
+        border-color: #9ca3af;
     }
     
     .partial-check {
+        color: #6b7280;
         font-size: 18px;
         line-height: 1;
-        color: #10b981;
     }
-    
     
     .dropdown-divider {
         height: 1px;
@@ -280,9 +346,9 @@
     }
     
     .no-services {
-        padding: 16px;
+        padding: 20px;
         text-align: center;
-        color: #6b7280;
+        color: #9ca3af;
         font-size: 14px;
     }
 </style>
