@@ -2,7 +2,7 @@
     import { sidebarData, sidebarLoading, sidebarError, loadIncidentSidebarData } from '../stores/incidents';
     import { GetServiceConfigByServiceID } from '../../wailsjs/go/main/App';
     import type { database, store } from '../../wailsjs/go/models';
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     
     type IncidentData = database.IncidentData;
     type ServiceConfig = store.ServiceConfig;
@@ -20,17 +20,43 @@
     let tagSelections: Record<string, string[]> = {};
     let freeformNote = '';
     
-    // Draft storage
-    let draftStore: Record<string, any> = {};
+    // Draft persistence
     let lastIncidentId = '';
+    let saveTimeout: number | null = null;
+    let draftSaveStatus = ''; // 'saving', 'saved', or ''
+    let draftTimestamp: number | null = null;
     
     // Dropdown state for custom dropdowns
     let openDropdown: string | null = null;
     
+    // LocalStorage key prefix
+    const DRAFT_PREFIX = 'pagerduty_draft_';
+    
     // Load service configuration when incident changes
-    $: if (incident?.service_id && incident.service_id !== lastIncidentId) {
-        loadServiceConfig();
-        lastIncidentId = incident.service_id;
+    $: if (incident?.incident_id && incident.incident_id !== lastIncidentId) {
+        handleIncidentChange();
+        lastIncidentId = incident.incident_id;
+    }
+    
+    onDestroy(() => {
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+        }
+    });
+    
+    async function handleIncidentChange() {
+        // Save current draft before switching
+        if (lastIncidentId) {
+            saveDraftToLocalStorage(lastIncidentId);
+        }
+        
+        // Load new incident's configuration
+        await loadServiceConfig();
+        
+        // Restore draft for new incident
+        if (incident?.incident_id) {
+            restoreDraftFromLocalStorage(incident.incident_id);
+        }
     }
     
     async function loadServiceConfig() {
@@ -41,25 +67,13 @@
             serviceConfig = await GetServiceConfigByServiceID(incident.service_id);
             serviceTypes = serviceConfig?.types || null;
             
-            // Load draft if exists
-            const draftKey = `${incident.incident_id}_${incident.service_id}`;
-            if (draftStore[draftKey]) {
-                const draft = draftStore[draftKey];
-                questionResponses = draft.questionResponses || {};
-                tagSelections = draft.tagSelections || {};
-                freeformNote = draft.freeformNote || '';
-            } else {
-                // Initialize empty state
-                questionResponses = {};
-                tagSelections = {};
-                freeformNote = '';
-                
-                // Initialize tag selections with empty arrays
-                if (serviceTypes?.tags) {
-                    serviceTypes.tags.forEach(tag => {
+            // Initialize tag selections with empty arrays
+            if (serviceTypes?.tags) {
+                serviceTypes.tags.forEach(tag => {
+                    if (!tagSelections[tag.name]) {
                         tagSelections[tag.name] = [];
-                    });
-                }
+                    }
+                });
             }
         } catch (err) {
             console.error('Failed to load service config:', err);
@@ -69,15 +83,118 @@
         }
     }
     
-    function saveDraft() {
-        if (!incident?.incident_id || !incident?.service_id) return;
+    function getDraftKey(incidentId: string): string {
+        return `${DRAFT_PREFIX}${incidentId}`;
+    }
+    
+    function saveDraftToLocalStorage(incidentId: string) {
+        if (!incidentId) return;
         
-        const draftKey = `${incident.incident_id}_${incident.service_id}`;
-        draftStore[draftKey] = {
+        const draftKey = getDraftKey(incidentId);
+        const draftData = {
             questionResponses: { ...questionResponses },
             tagSelections: { ...tagSelections },
-            freeformNote
+            freeformNote,
+            timestamp: Date.now(),
+            serviceId: incident?.service_id
         };
+        
+        // Only save if there's actual content
+        if (hasContent()) {
+            try {
+                localStorage.setItem(draftKey, JSON.stringify(draftData));
+                draftTimestamp = Date.now();
+                draftSaveStatus = 'saved';
+                
+                // Clear status after 2 seconds
+                setTimeout(() => {
+                    draftSaveStatus = '';
+                }, 2000);
+            } catch (error) {
+                console.error('Failed to save draft to localStorage:', error);
+                draftSaveStatus = '';
+            }
+        } else {
+            // Clear draft if no content
+            clearDraft(incidentId);
+        }
+    }
+    
+    function restoreDraftFromLocalStorage(incidentId: string) {
+        if (!incidentId) return;
+        
+        const draftKey = getDraftKey(incidentId);
+        
+        try {
+            const draftJson = localStorage.getItem(draftKey);
+            
+            if (draftJson) {
+                const draft = JSON.parse(draftJson);
+                
+                // Restore form state
+                questionResponses = draft.questionResponses || {};
+                tagSelections = draft.tagSelections || {};
+                freeformNote = draft.freeformNote || '';
+                draftTimestamp = draft.timestamp || null;
+                
+                // Show indicator that draft was restored
+                if (hasContent()) {
+                    draftSaveStatus = 'saved';
+                    setTimeout(() => {
+                        draftSaveStatus = '';
+                    }, 2000);
+                }
+            } else {
+                // No draft found, initialize empty
+                questionResponses = {};
+                tagSelections = {};
+                freeformNote = '';
+                draftTimestamp = null;
+                
+                // Initialize tag selections
+                if (serviceTypes?.tags) {
+                    serviceTypes.tags.forEach(tag => {
+                        tagSelections[tag.name] = [];
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Failed to restore draft from localStorage:', error);
+            // Initialize empty on error
+            questionResponses = {};
+            tagSelections = {};
+            freeformNote = '';
+            draftTimestamp = null;
+        }
+    }
+    
+    function saveDraft() {
+        if (!incident?.incident_id) return;
+        
+        // Show saving status
+        draftSaveStatus = 'saving';
+        
+        // Debounce save to avoid hammering localStorage
+        if (saveTimeout) {
+            clearTimeout(saveTimeout);
+        }
+        
+        saveTimeout = window.setTimeout(() => {
+            saveDraftToLocalStorage(incident.incident_id);
+        }, 500);
+    }
+    
+    function clearDraft(incidentId: string) {
+        if (!incidentId) return;
+        
+        const draftKey = getDraftKey(incidentId);
+        try {
+            localStorage.removeItem(draftKey);
+            draftTimestamp = null;
+            draftSaveStatus = '';
+        } catch (error) {
+            console.error('Failed to clear draft from localStorage:', error);
+        }
     }
     
     function toggleDropdown(tagName: string) {
@@ -151,9 +268,9 @@
         tagSelections = {};
         freeformNote = '';
         
-        if (incident?.incident_id && incident?.service_id) {
-            const draftKey = `${incident.incident_id}_${incident.service_id}`;
-            delete draftStore[draftKey];
+        // Clear draft from localStorage
+        if (incident?.incident_id) {
+            clearDraft(incident.incident_id);
         }
         
         // Re-initialize tag selections
@@ -182,6 +299,18 @@
         });
     }
     
+    function getTimeSince(timestamp: number): string {
+        const seconds = Math.floor((Date.now() - timestamp) / 1000);
+        
+        if (seconds < 60) return 'just now';
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    }
+    
     async function retry() {
         if (incident?.incident_id) {
             await loadIncidentSidebarData(incident.incident_id);
@@ -192,7 +321,14 @@
 <div class="notes-container">
     <!-- Add Notes Section -->
     <div class="add-notes-section">
-        <p class="section-title">Add Notes</p>
+        <div class="section-header">
+            <p class="section-title">Add Notes</p>
+            {#if draftSaveStatus === 'saving'}
+                <span class="draft-status saving">Saving...</span>
+            {:else if draftSaveStatus === 'saved' && draftTimestamp}
+                <span class="draft-status saved">Draft saved {getTimeSince(draftTimestamp)}</span>
+            {/if}
+        </div>
         
         {#if loadingConfig}
             <div class="config-loading">Loading service configuration...</div>
@@ -216,6 +352,7 @@
                     {/each}
                 </div>
             {/if}
+            
             <!-- Dynamic Tags -->
             {#if serviceTypes.tags && serviceTypes.tags.length > 0}
                 <div class="tags-section">
@@ -232,38 +369,39 @@
                                     on:click={() => toggleDropdown(tagConfig.name)}
                                 >
                                     <span class="dropdown-text">{getDropdownText(tagConfig.name, !!tagConfig.single)}</span>
-                                    <svg 
-                                        class="chevron" 
-                                        class:rotated={openDropdown === tagConfig.name}
-                                        width="16" 
-                                        height="16" 
-                                        viewBox="0 0 20 20" 
-                                        fill="currentColor"
-                                    >
+                                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" class="dropdown-icon">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                                     </svg>
                                 </button>
                                 
                                 {#if openDropdown === tagConfig.name}
-                                    <!-- svelte-ignore a11y-click-events-have-key-events -->
                                     <!-- svelte-ignore a11y-no-static-element-interactions -->
-                                    <div class="dropdown-backdrop" on:click={closeDropdown}></div>
+                                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                    <div class="dropdown-overlay" on:click={closeDropdown}></div>
                                     <div class="dropdown-menu">
-                                        {#if tagConfig.single}
-                                            {#each tagConfig.single as option}
-                                                <button 
-                                                    class="dropdown-item"
-                                                    class:selected={tagSelections[tagConfig.name]?.includes(option)}
-                                                    on:click={() => handleTagSelection(tagConfig.name, option, true)}
-                                                >
-                                                    {option}
-                                                </button>
-                                            {/each}
-                                        {:else if tagConfig.multiple}
+                                        {#if tagConfig.multiple && tagConfig.multiple.length > 0}
                                             {#each tagConfig.multiple as option}
                                                 <button 
-                                                    class="dropdown-item"
+                                                    class="dropdown-option"
+                                                    class:selected={tagSelections[tagConfig.name]?.includes(option)}
                                                     on:click={() => handleTagSelection(tagConfig.name, option, false)}
+                                                >
+                                                    <span class="checkbox">
+                                                        {#if tagSelections[tagConfig.name]?.includes(option)}
+                                                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                                            </svg>
+                                                        {/if}
+                                                    </span>
+                                                    <span>{option}</span>
+                                                </button>
+                                            {/each}
+                                        {:else if tagConfig.single && tagConfig.single.length > 0}
+                                            {#each tagConfig.single as option}
+                                                <button 
+                                                    class="dropdown-option"
+                                                    class:selected={tagSelections[tagConfig.name]?.includes(option)}
+                                                    on:click={() => handleTagSelection(tagConfig.name, option, true)}
                                                 >
                                                     <span class="checkbox">
                                                         {#if tagSelections[tagConfig.name]?.includes(option)}
@@ -418,11 +556,36 @@
         margin-bottom: 24px;
     }
     
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    
     .section-title {
-        margin: 0 0 16px 0;
+        margin: 0;
         font-size: 14px;
         font-weight: 600;
         color: #374151;
+    }
+    
+    .draft-status {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+    
+    .draft-status.saving {
+        color: #3b82f6;
+        background: #eff6ff;
+    }
+    
+    .draft-status.saved {
+        color: #059669;
+        background: #d1fae5;
     }
     
     .subsection-title {
@@ -436,11 +599,9 @@
     
     .config-loading {
         padding: 12px;
-        background: #f3f4f6;
-        border-radius: 6px;
-        color: #6b7280;
         text-align: center;
-        font-size: 14px;
+        color: #6b7280;
+        font-size: 13px;
     }
     
     /* Questions Section */
@@ -449,29 +610,32 @@
     }
     
     .question-group {
-        margin-bottom: 16px;
+        margin-bottom: 12px;
     }
     
     .question-label {
         display: block;
-        margin-bottom: 6px;
         font-size: 13px;
         font-weight: 500;
         color: #374151;
+        margin-bottom: 6px;
     }
     
     .question-textarea {
         width: 100%;
-        padding: 10px 12px;
-        background: #f9fafb;
+        padding: 8px 12px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
         font-size: 14px;
-        font-family: inherit;
-        color: #374151;
+        color: #1f2937;
+        background: #f9fafb;
         resize: vertical;
-        box-sizing: border-box;
+        font-family: inherit;
         transition: all 0.2s ease;
+    }
+    
+    .question-textarea::placeholder {
+        color: #9ca3af;
     }
     
     .question-textarea:focus {
@@ -486,66 +650,60 @@
     }
     
     .tag-group {
-        margin-bottom: 16px;
+        margin-bottom: 12px;
     }
     
     .tag-label {
         display: block;
-        margin-bottom: 6px;
         font-size: 13px;
         font-weight: 500;
         color: #374151;
+        margin-bottom: 6px;
     }
     
-    /* Custom Dropdown Styles (matching ServiceFilter) */
     .tag-dropdown {
         position: relative;
     }
     
     .dropdown-button {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
         width: 100%;
-        padding: 10px 12px;
-        background: white;
+        padding: 8px 12px;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
+        border-radius: 6px;
+        background: #f9fafb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
         cursor: pointer;
+        transition: all 0.2s ease;
         font-size: 14px;
         color: #374151;
-        transition: all 0.2s;
-        box-sizing: border-box;
     }
     
     .dropdown-button:hover {
-        background: #f9fafb;
+        background: #ffffff;
         border-color: #d1d5db;
     }
     
     .dropdown-text {
         flex: 1;
         text-align: left;
-    }
-    
-    .chevron {
-        transition: transform 0.2s;
         color: #6b7280;
+    }
+    
+    .dropdown-icon {
         flex-shrink: 0;
+        color: #9ca3af;
+        transition: transform 0.2s ease;
     }
     
-    .chevron.rotated {
-        transform: rotate(180deg);
-    }
-    
-    .dropdown-backdrop {
+    .dropdown-overlay {
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        z-index: 9;
+        z-index: 10;
     }
     
     .dropdown-menu {
@@ -555,46 +713,52 @@
         right: 0;
         background: white;
         border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-        max-height: 300px;
+        border-radius: 6px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        z-index: 20;
+        max-height: 200px;
         overflow-y: auto;
-        z-index: 10;
     }
     
-    .dropdown-item {
+    .dropdown-option {
+        width: 100%;
+        padding: 8px 12px;
+        border: none;
+        background: white;
         display: flex;
         align-items: center;
-        gap: 12px;
-        width: 100%;
-        padding: 12px 16px;
-        background: none;
-        border: none;
+        gap: 8px;
         cursor: pointer;
         font-size: 14px;
         color: #374151;
-        text-align: left;
-        transition: background 0.2s;
+        transition: background 0.15s ease;
     }
     
-    .dropdown-item:hover {
-        background: #f9fafb;
+    .dropdown-option:hover {
+        background: #f3f4f6;
     }
     
-    .dropdown-item.selected {
+    .dropdown-option.selected {
         background: #eff6ff;
         color: #3b82f6;
-        font-weight: 500;
     }
     
     .checkbox {
         width: 16px;
         height: 16px;
+        border: 1px solid #d1d5db;
+        border-radius: 3px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #10b981;
         flex-shrink: 0;
+        background: white;
+    }
+    
+    .dropdown-option.selected .checkbox {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: white;
     }
     
     .tag-chips {
@@ -612,25 +776,25 @@
         background: #eff6ff;
         color: #3b82f6;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
     }
     
     .chip-remove {
-        background: none;
-        border: none;
-        color: #3b82f6;
-        font-size: 18px;
-        line-height: 1;
-        cursor: pointer;
         padding: 0;
         width: 16px;
         height: 16px;
+        border: none;
+        background: transparent;
+        color: #3b82f6;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 50%;
-        transition: background 0.2s ease;
+        border-radius: 2px;
+        transition: background 0.15s ease;
     }
     
     .chip-remove:hover {
@@ -644,18 +808,18 @@
     
     .note-textarea {
         width: 100%;
-        padding: 12px 14px;
-        background: #f9fafb;
+        padding: 10px 12px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
         font-size: 14px;
-        font-family: inherit;
-        color: #374151;
+        color: #1f2937;
+        background: #f9fafb;
         resize: vertical;
-        box-sizing: border-box;
+        font-family: inherit;
+        min-height: 80px;
         transition: all 0.2s ease;
     }
-    
+
     .note-textarea::placeholder {
         color: #9ca3af;
     }
@@ -785,60 +949,72 @@
     .tag-display-chip {
         display: inline-block;
         padding: 2px 8px;
-        background: #eff6ff;
-        color: #3b82f6;
-        border-radius: 3px;
-        font-size: 12px;
+        background: #e5e7eb;
+        color: #374151;
+        border-radius: 4px;
+        font-size: 11px;
         font-weight: 500;
     }
     
     .note-content {
-        color: #4b5563;
         font-size: 14px;
+        color: #1f2937;
         line-height: 1.6;
         white-space: pre-wrap;
-        word-wrap: break-word;
     }
     
-    /* Loading and Error States */
+    .notes-empty {
+        padding: 32px 16px;
+        text-align: center;
+        color: #9ca3af;
+        font-size: 14px;
+    }
+    
+    /* Loading Skeletons */
     .skeleton-container {
-        background: #f9fafb;
+        padding: 14px;
+        background: white;
         border: 1px solid #e5e7eb;
         border-radius: 8px;
-        padding: 14px;
         margin-bottom: 12px;
     }
     
     .skeleton-line {
-        height: 14px;
+        height: 12px;
         background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
         background-size: 200% 100%;
-        animation: loading 1.5s infinite;
+        animation: shimmer 1.5s infinite;
         border-radius: 4px;
         margin-bottom: 8px;
-    }
-    
-    .skeleton-line.short {
-        width: 60%;
     }
     
     .skeleton-line:last-child {
         margin-bottom: 0;
     }
     
-    @keyframes loading {
-        0% { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
+    .skeleton-line.short {
+        width: 60%;
     }
     
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+        100% {
+            background-position: -200% 0;
+        }
+    }
+    
+    /* Error Banner */
     .error-banner {
+        padding: 16px;
         background: #fef2f2;
         border: 1px solid #fecaca;
         border-radius: 8px;
-        padding: 14px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
+        margin-bottom: 16px;
     }
     
     .error-icon {
@@ -850,16 +1026,16 @@
         flex: 1;
         margin: 0;
         color: #991b1b;
-        font-size: 14px;
+        font-size: 13px;
     }
     
     .retry-button {
-        padding: 6px 14px;
+        padding: 6px 12px;
         background: #dc2626;
         color: white;
         border: none;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
         cursor: pointer;
         flex-shrink: 0;
@@ -868,19 +1044,5 @@
     
     .retry-button:hover {
         background: #b91c1c;
-    }
-    
-    .notes-empty {
-        border: 2px dashed #e5e7eb;
-        border-radius: 8px;
-        padding: 48px 20px;
-        text-align: center;
-    }
-    
-    .notes-empty p {
-        margin: 0;
-        font-size: 15px;
-        color: #9ca3af;
-        font-weight: 400;
     }
 </style>
