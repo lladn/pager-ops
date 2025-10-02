@@ -32,6 +32,20 @@
     // LocalStorage key prefix
     const DRAFT_PREFIX = 'pagerduty_draft_';
     
+    // REACTIVE: Make hasContent a reactive variable instead of a function
+    $: hasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
+    
+        function computeHasContent(
+        questions: Record<string, string>, 
+        tags: Record<string, string[]>, 
+        freeform: string
+    ): boolean {
+        const hasQuestions = Object.values(questions).some(v => v && v.trim().length > 0);
+        const hasTags = Object.values(tags).some(v => v && v.length > 0);
+        const hasFreeform = freeform ? freeform.trim().length > 0 : false;
+        return hasQuestions || hasTags || hasFreeform;
+    }
+    
     // Load service configuration when incident changes
     $: if (incident?.incident_id && incident.incident_id !== lastIncidentId) {
         handleIncidentChange();
@@ -100,7 +114,8 @@
         };
         
         // Only save if there's actual content
-        if (hasContent()) {
+        const currentHasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
+        if (currentHasContent) {
             try {
                 localStorage.setItem(draftKey, JSON.stringify(draftData));
                 draftTimestamp = Date.now();
@@ -138,33 +153,33 @@
                 draftTimestamp = draft.timestamp || null;
                 
                 // Show indicator that draft was restored
-                if (hasContent()) {
+                const currentHasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
+                if (currentHasContent) {
                     draftSaveStatus = 'saved';
                     setTimeout(() => {
                         draftSaveStatus = '';
                     }, 2000);
                 }
             } else {
-                // No draft found, initialize empty
-                questionResponses = {};
-                tagSelections = {};
-                freeformNote = '';
-                draftTimestamp = null;
+                // No draft found, initialize empty ONLY if fields are not already populated
+                if (!computeHasContent(questionResponses, tagSelections, freeformNote)) {
+                    questionResponses = {};
+                    tagSelections = {};
+                    freeformNote = '';
+                    draftTimestamp = null;
+                }
                 
                 // Initialize tag selections
                 if (serviceTypes?.tags) {
                     serviceTypes.tags.forEach(tag => {
-                        tagSelections[tag.name] = [];
+                        if (!tagSelections[tag.name]) {
+                            tagSelections[tag.name] = [];
+                        }
                     });
                 }
             }
         } catch (error) {
             console.error('Failed to restore draft from localStorage:', error);
-            // Initialize empty on error
-            questionResponses = {};
-            tagSelections = {};
-            freeformNote = '';
-            draftTimestamp = null;
         }
     }
     
@@ -279,13 +294,6 @@
                 tagSelections[tag.name] = [];
             });
         }
-    }
-    
-    function hasContent(): boolean {
-        const hasQuestions = Object.values(questionResponses).some(v => v.trim());
-        const hasTags = Object.values(tagSelections).some(v => v.length > 0);
-        const hasFreeform = freeformNote.trim().length > 0;
-        return hasQuestions || hasTags || hasFreeform;
     }
     
     function formatDate(date: Date | string): string {
@@ -462,13 +470,13 @@
         {/if}
         
         <button 
-            class="add-note-button" 
-            class:active={hasContent()}
-            on:click={handleAddNote}
-            disabled={!hasContent()}
-        >
-            Add Note
-        </button>
+        class="add-note-button" 
+        class:active={hasContent}
+        on:click={handleAddNote}
+        disabled={!hasContent}
+    >
+        Add Note
+    </button>
     </div>
 
     <!-- Existing Notes Display -->
