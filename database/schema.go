@@ -1039,6 +1039,81 @@ func (db *DB) UpdateIncidentsBatch(incidents []IncidentData, staleIDs []string) 
 	return nil
 }
 
+// GetIncidentByID retrieves a single incident by its ID
+func (db *DB) GetIncidentByID(incidentID string) (IncidentData, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	query := `
+		SELECT incident_id, incident_number, title, service_summary, 
+			   service_id, status, html_url, created_at, updated_at, alert_count,
+			   COALESCE(urgency, 'low') as urgency
+		FROM incidents
+		WHERE incident_id = ?
+	`
+
+	var incident IncidentData
+	err := db.conn.QueryRow(query, incidentID).Scan(
+		&incident.IncidentID,
+		&incident.IncidentNumber,
+		&incident.Title,
+		&incident.ServiceSummary,
+		&incident.ServiceID,
+		&incident.Status,
+		&incident.HTMLURL,
+		&incident.CreatedAt,
+		&incident.UpdatedAt,
+		&incident.AlertCount,
+		&incident.Urgency,
+	)
+
+	if err == sql.ErrNoRows {
+		return incident, fmt.Errorf("incident not found: %s", incidentID)
+	}
+
+	if err != nil {
+		return incident, fmt.Errorf("failed to get incident: %w", err)
+	}
+
+	return incident, nil
+}
+
+// ClearIncidentSidebarCache removes cached alerts and notes for an incident
+func (db *DB) ClearIncidentSidebarCache(incidentID string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete alerts for this incident
+	_, err = tx.Exec("DELETE FROM incident_alerts WHERE incident_id = ?", incidentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete alerts: %w", err)
+	}
+
+	// Delete notes for this incident
+	_, err = tx.Exec("DELETE FROM incident_notes WHERE incident_id = ?", incidentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete notes: %w", err)
+	}
+
+	// Delete metadata for this incident
+	_, err = tx.Exec("DELETE FROM incident_sidebar_metadata WHERE incident_id = ?", incidentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete metadata: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // Close - ORIGINAL METHOD UNCHANGED
 func (db *DB) Close() error {
 	return db.conn.Close()
