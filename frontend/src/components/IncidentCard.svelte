@@ -2,6 +2,7 @@
     import { database } from '../../wailsjs/go/models';
     import { formatTime, selectedIncident, userAcknowledgedIncidents, markIncidentAcknowledged } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+    import { AcknowledgeIncident } from '../../wailsjs/go/main/App';
     import { getServiceColor } from '../lib/serviceColors';
     
     type IncidentData = database.IncidentData;
@@ -25,6 +26,9 @@
     // Feedback states for action buttons
     let copyFeedback = '';
     let openFeedback = '';
+    
+    // Loading state for acknowledge button
+    let acknowledging = false;
     
     function getStatusColor(status: string): string {
         switch (status) {
@@ -82,15 +86,28 @@
         }
     }
     
-    function handleAcknowledge(event: MouseEvent) {
+    async function handleAcknowledge(event: MouseEvent) {
         event.stopPropagation();
         
-        // Mark as acknowledged at current updated_at timestamp
-        markIncidentAcknowledged(incident.incident_id, incident.updated_at);
+        if (acknowledging) return;
         
-        console.log(`Incident ${incident.incident_id} acknowledged at ${incident.updated_at}`);
+        acknowledging = true;
         
-        // TODO: Backend implementation will be added later
+        try {
+            // Call backend to acknowledge incident
+            await AcknowledgeIncident(incident.incident_id);
+            
+            // Mark as acknowledged locally for instant UI feedback
+            markIncidentAcknowledged(incident.incident_id, incident.updated_at);
+            
+            console.log(`Incident ${incident.incident_id} acknowledged successfully`);
+            
+        } catch (err) {
+            console.error('Failed to acknowledge incident:', err);
+            alert(`Failed to acknowledge incident: ${err}`);
+        } finally {
+            acknowledging = false;
+        }
     }
     
     function handleCardClick() {
@@ -158,11 +175,18 @@
                 <span class="acknowledge-spacer"></span>
                 <button 
                     class="acknowledge-button" 
+                    class:loading={acknowledging}
                     on:click={handleAcknowledge}
+                    disabled={acknowledging}
                     title="Acknowledge incident"
                 >
-                    <span class="ack-icon">!</span>
-                    Acknowledge
+                    {#if acknowledging}
+                        <span class="spinner"></span>
+                        Acknowledging...
+                    {:else}
+                        <span class="ack-icon">!</span>
+                        Acknowledge
+                    {/if}
                 </button>
             {/if}
         </div>
