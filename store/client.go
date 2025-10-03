@@ -196,6 +196,23 @@ func (c *Client) executeAPICall(req *APIRequest) {
 		incidentID := req.Options.(string)
 		result, err = c.pd.ListIncidentNotesWithContext(req.Context, incidentID)
 
+	case "ManageIncidents":
+		opts := req.Options.(ManageIncidentsRequest)
+		result, err = c.pd.ManageIncidentsWithContext(req.Context, opts.From, []pagerduty.ManageIncidentsOptions{
+			{
+				ID:     opts.IncidentID,
+				Type:   "incident",
+				Status: opts.Status,
+			},
+		})
+
+	case "CreateIncidentNote":
+		opts := req.Options.(CreateIncidentNoteRequest)
+		note := pagerduty.IncidentNote{
+			Content: opts.Content,
+		}
+		result, err = c.pd.CreateIncidentNoteWithContext(req.Context, opts.IncidentID, note)
+
 	default:
 		err = fmt.Errorf("unknown API request type: %s", req.Type)
 	}
