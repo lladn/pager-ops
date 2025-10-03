@@ -57,6 +57,40 @@ export namespace database {
 
 export namespace main {
 	
+	export class NoteInput {
+	    responses: store.NoteResponse[];
+	    tags: store.NoteTag[];
+	    freeform_content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NoteInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.responses = this.convertValues(source["responses"], store.NoteResponse);
+	        this.tags = this.convertValues(source["tags"], store.NoteTag);
+	        this.freeform_content = source["freeform_content"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class NotificationConfig {
 	    enabled: boolean;
 	    sound: string;

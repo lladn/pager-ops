@@ -1,7 +1,7 @@
 <script lang="ts">
     import { sidebarData, sidebarLoading, sidebarError, loadIncidentSidebarData } from '../stores/incidents';
-    import { GetServiceConfigByServiceID } from '../../wailsjs/go/main/App';
-    import type { database, store } from '../../wailsjs/go/models';
+    import { GetServiceConfigByServiceID, AddIncidentNote } from '../../wailsjs/go/main/App';
+    import { store, type database } from '../../wailsjs/go/models';
     import { onMount, onDestroy } from 'svelte';
     
     type IncidentData = database.IncidentData;
@@ -29,13 +29,16 @@
     // Dropdown state for custom dropdowns
     let openDropdown: string | null = null;
     
+    // Loading state for add note button
+    let addingNote = false;
+    
     // LocalStorage key prefix
     const DRAFT_PREFIX = 'pagerduty_draft_';
     
     // REACTIVE: Make hasContent a reactive variable instead of a function
     $: hasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
     
-        function computeHasContent(
+    function computeHasContent(
         questions: Record<string, string>, 
         tags: Record<string, string[]>, 
         freeform: string
@@ -113,25 +116,10 @@
             serviceId: incident?.service_id
         };
         
-        // Only save if there's actual content
-        const currentHasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
-        if (currentHasContent) {
-            try {
-                localStorage.setItem(draftKey, JSON.stringify(draftData));
-                draftTimestamp = Date.now();
-                draftSaveStatus = 'saved';
-                
-                // Clear status after 2 seconds
-                setTimeout(() => {
-                    draftSaveStatus = '';
-                }, 2000);
-            } catch (error) {
-                console.error('Failed to save draft to localStorage:', error);
-                draftSaveStatus = '';
-            }
-        } else {
-            // Clear draft if no content
-            clearDraft(incidentId);
+        try {
+            localStorage.setItem(draftKey, JSON.stringify(draftData));
+        } catch (err) {
+            console.error('Failed to save draft:', err);
         }
     }
     
@@ -139,76 +127,49 @@
         if (!incidentId) return;
         
         const draftKey = getDraftKey(incidentId);
-        
         try {
-            const draftJson = localStorage.getItem(draftKey);
-            
-            if (draftJson) {
-                const draft = JSON.parse(draftJson);
+            const saved = localStorage.getItem(draftKey);
+            if (saved) {
+                const draftData = JSON.parse(saved);
                 
-                // Restore form state
-                questionResponses = draft.questionResponses || {};
-                tagSelections = draft.tagSelections || {};
-                freeformNote = draft.freeformNote || '';
-                draftTimestamp = draft.timestamp || null;
-                
-                // Show indicator that draft was restored
-                const currentHasContent = computeHasContent(questionResponses, tagSelections, freeformNote);
-                if (currentHasContent) {
-                    draftSaveStatus = 'saved';
-                    setTimeout(() => {
-                        draftSaveStatus = '';
-                    }, 2000);
-                }
-            } else {
-                // No draft found, initialize empty ONLY if fields are not already populated
-                if (!computeHasContent(questionResponses, tagSelections, freeformNote)) {
-                    questionResponses = {};
-                    tagSelections = {};
-                    freeformNote = '';
-                    draftTimestamp = null;
-                }
-                
-                // Initialize tag selections
-                if (serviceTypes?.tags) {
-                    serviceTypes.tags.forEach(tag => {
-                        if (!tagSelections[tag.name]) {
-                            tagSelections[tag.name] = [];
-                        }
-                    });
+                // Only restore if it's for the same service
+                if (draftData.serviceId === incident?.service_id) {
+                    questionResponses = draftData.questionResponses || {};
+                    tagSelections = draftData.tagSelections || {};
+                    freeformNote = draftData.freeformNote || '';
+                    draftTimestamp = draftData.timestamp || null;
+                    draftSaveStatus = draftTimestamp ? 'saved' : '';
                 }
             }
-        } catch (error) {
-            console.error('Failed to restore draft from localStorage:', error);
+        } catch (err) {
+            console.error('Failed to restore draft:', err);
         }
     }
     
     function saveDraft() {
-        if (!incident?.incident_id) return;
-        
-        // Show saving status
         draftSaveStatus = 'saving';
         
-        // Debounce save to avoid hammering localStorage
         if (saveTimeout) {
             clearTimeout(saveTimeout);
         }
         
         saveTimeout = window.setTimeout(() => {
-            saveDraftToLocalStorage(incident.incident_id);
+            if (incident?.incident_id) {
+                saveDraftToLocalStorage(incident.incident_id);
+                draftSaveStatus = 'saved';
+                draftTimestamp = Date.now();
+            }
         }, 500);
     }
     
     function clearDraft(incidentId: string) {
-        if (!incidentId) return;
-        
         const draftKey = getDraftKey(incidentId);
         try {
             localStorage.removeItem(draftKey);
-            draftTimestamp = null;
             draftSaveStatus = '';
-        } catch (error) {
-            console.error('Failed to clear draft from localStorage:', error);
+            draftTimestamp = null;
+        } catch (err) {
+            console.error('Failed to clear draft:', err);
         }
     }
     
@@ -267,32 +228,76 @@
         return `${selected.length} selected`;
     }
     
-    function handleAddNote() {
-        // TODO: When backend API is ready, send structured note data
-        // For now, just show alert with placeholder
-        alert('Note functionality will be connected to backend in future update.\n\nData to be sent:\n' + 
-              JSON.stringify({
-                  serviceId: incident?.service_id,
-                  responses: questionResponses,
-                  tags: tagSelections,
-                  freeformContent: freeformNote
-              }, null, 2));
-        
-        // Clear form
-        questionResponses = {};
-        tagSelections = {};
-        freeformNote = '';
-        
-        // Clear draft from localStorage
-        if (incident?.incident_id) {
-            clearDraft(incident.incident_id);
+    async function handleAddNote() {
+        if (!hasContent) {
+            alert('Please fill in at least one field before adding a note.');
+            return;
         }
         
-        // Re-initialize tag selections
-        if (serviceTypes?.tags) {
-            serviceTypes.tags.forEach(tag => {
-                tagSelections[tag.name] = [];
-            });
+        if (addingNote) return;
+        
+        addingNote = true;
+        
+        try {
+            // Build structured note data using Wails models
+            const responses = Object.entries(questionResponses)
+                .filter(([_, answer]) => answer && answer.trim())
+                .map(([question, answer]) => 
+                    new store.NoteResponse({
+                        question,
+                        answer: answer.trim()
+                    })
+                );
+            
+            const tags = Object.entries(tagSelections)
+                .filter(([_, values]) => values && values.length > 0)
+                .map(([tagName, values]) => 
+                    new store.NoteTag({
+                        tag_name: tagName,
+                        selected_values: values
+                    })
+                );
+            
+            // Use any type to bypass strict type checking for the noteData object
+            const noteData: any = {
+                responses,
+                tags,
+                freeform_content: freeformNote.trim()
+            };
+            
+            // Call backend to add note
+            await AddIncidentNote(incident.incident_id, noteData);
+            
+            // Clear form on success
+            questionResponses = {};
+            tagSelections = {};
+            freeformNote = '';
+            
+            // Clear draft from localStorage
+            if (incident?.incident_id) {
+                clearDraft(incident.incident_id);
+            }
+            
+            // Reinitialize tag selections
+            if (serviceTypes?.tags) {
+                serviceTypes.tags.forEach(tag => {
+                    tagSelections[tag.name] = [];
+                });
+            }
+            
+            // The backend will emit "sidebar-data-updated" event which will trigger the sidebar to refetch
+            // Give it a moment, then manually refetch to show the new note immediately
+            setTimeout(async () => {
+                if (incident?.incident_id) {
+                    await loadIncidentSidebarData(incident.incident_id);
+                }
+            }, 500);
+            
+        } catch (err) {
+            console.error('Failed to add note:', err);
+            alert(`Failed to add note: ${err}`);
+        } finally {
+            addingNote = false;
         }
     }
     
@@ -364,80 +369,59 @@
             <!-- Dynamic Tags -->
             {#if serviceTypes.tags && serviceTypes.tags.length > 0}
                 <div class="tags-section">
-                    <p class="subsection-title">Tags</p>
-                    {#each serviceTypes.tags as tagConfig}
+                    {#each serviceTypes.tags as tag}
+                        {@const isSingle = !!(tag.single && tag.single.length > 0)}
+                        {@const options = (isSingle ? tag.single : tag.multiple) || []}
+                        {@const selected = tagSelections[tag.name] || []}
+                        
                         <div class="tag-group">
                             <!-- svelte-ignore a11y-label-has-associated-control -->
-                            <label class="tag-label">{tagConfig.name}</label>
+                            <label class="tag-label">{tag.name}</label>
                             
-                            <!-- Custom Dropdown -->
-                            <div class="tag-dropdown">
+                            <!-- Custom dropdown -->
+                            <div class="custom-dropdown">
                                 <button 
                                     class="dropdown-button"
-                                    on:click={() => toggleDropdown(tagConfig.name)}
+                                    on:click={() => toggleDropdown(tag.name)}
+                                    type="button"
                                 >
-                                    <span class="dropdown-text">{getDropdownText(tagConfig.name, !!tagConfig.single)}</span>
-                                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" class="dropdown-icon">
-                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                    </svg>
+                                    <span>{getDropdownText(tag.name, isSingle)}</span>
+                                    <span class="dropdown-arrow">▼</span>
                                 </button>
                                 
-                                {#if openDropdown === tagConfig.name}
-                                    <!-- svelte-ignore a11y-no-static-element-interactions -->
-                                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                                    <div class="dropdown-overlay" on:click={closeDropdown}></div>
+                                {#if openDropdown === tag.name}
                                     <div class="dropdown-menu">
-                                        {#if tagConfig.multiple && tagConfig.multiple.length > 0}
-                                            {#each tagConfig.multiple as option}
-                                                <button 
-                                                    class="dropdown-option"
-                                                    class:selected={tagSelections[tagConfig.name]?.includes(option)}
-                                                    on:click={() => handleTagSelection(tagConfig.name, option, false)}
-                                                >
-                                                    <span class="checkbox">
-                                                        {#if tagSelections[tagConfig.name]?.includes(option)}
-                                                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                                            </svg>
-                                                        {/if}
+                                        {#each options as option}
+                                            <button
+                                                class="dropdown-item"
+                                                class:selected={selected.includes(option)}
+                                                on:click={() => handleTagSelection(tag.name, option, isSingle)}
+                                                type="button"
+                                            >
+                                                {#if !isSingle}
+                                                    <span class="checkbox" class:checked={selected.includes(option)}>
+                                                        {#if selected.includes(option)}✓{/if}
                                                     </span>
-                                                    <span>{option}</span>
-                                                </button>
-                                            {/each}
-                                        {:else if tagConfig.single && tagConfig.single.length > 0}
-                                            {#each tagConfig.single as option}
-                                                <button 
-                                                    class="dropdown-option"
-                                                    class:selected={tagSelections[tagConfig.name]?.includes(option)}
-                                                    on:click={() => handleTagSelection(tagConfig.name, option, true)}
-                                                >
-                                                    <span class="checkbox">
-                                                        {#if tagSelections[tagConfig.name]?.includes(option)}
-                                                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                                            </svg>
-                                                        {/if}
-                                                    </span>
-                                                    <span>{option}</span>
-                                                </button>
-                                            {/each}
-                                        {/if}
+                                                {/if}
+                                                {option}
+                                            </button>
+                                        {/each}
                                     </div>
                                 {/if}
                             </div>
                             
-                            <!-- Selected tags as chips (for both single and multiple) -->
-                            {#if tagSelections[tagConfig.name] && tagSelections[tagConfig.name].length > 0}
-                                <div class="tag-chips">
-                                    {#each tagSelections[tagConfig.name] as selectedValue}
-                                        <div class="tag-chip">
-                                            <span>{selectedValue}</span>
+                            <!-- Selected tags chips -->
+                            {#if selected.length > 0}
+                                <div class="selected-tags">
+                                    {#each selected as value}
+                                        <span class="tag-chip">
+                                            {value}
                                             <button 
-                                                class="chip-remove"
-                                                on:click={() => removeTag(tagConfig.name, selectedValue)}
-                                                title="Remove"
+                                                class="tag-remove"
+                                                on:click={() => removeTag(tag.name, value)}
+                                                type="button"
                                             >×</button>
-                                        </div>
+                                        </span>
                                     {/each}
                                 </div>
                             {/if}
@@ -470,13 +454,19 @@
         {/if}
         
         <button 
-        class="add-note-button" 
-        class:active={hasContent}
-        on:click={handleAddNote}
-        disabled={!hasContent}
-    >
-        Add Note
-    </button>
+            class="add-note-button" 
+            class:active={hasContent && !addingNote}
+            class:loading={addingNote}
+            on:click={handleAddNote}
+            disabled={!hasContent || addingNote}
+        >
+            {#if addingNote}
+                <span class="spinner"></span>
+                Adding Note...
+            {:else}
+                Add Note
+            {/if}
+        </button>
     </div>
 
     <!-- Existing Notes Display -->
@@ -555,6 +545,12 @@
     {/if}
 </div>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+{#if openDropdown}
+    <div class="dropdown-overlay" on:click={closeDropdown}></div>
+{/if}
+
 <style>
     .notes-container {
         padding: 16px;
@@ -575,15 +571,13 @@
         margin: 0;
         font-size: 14px;
         font-weight: 600;
-        color: #374151;
+        color: #303030;
     }
     
     .draft-status {
         font-size: 11px;
-        font-weight: 500;
         padding: 2px 8px;
         border-radius: 4px;
-        transition: all 0.2s ease;
     }
     
     .draft-status.saving {
@@ -592,17 +586,8 @@
     }
     
     .draft-status.saved {
-        color: #059669;
-        background: #d1fae5;
-    }
-    
-    .subsection-title {
-        margin: 16px 0 8px 0;
-        font-size: 12px;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        color: #10b981;
+        background: #f0fdf4;
     }
     
     .config-loading {
@@ -612,16 +597,24 @@
         font-size: 13px;
     }
     
-    /* Questions Section */
-    .questions-section {
+    .questions-section, .tags-section, .freeform-section {
         margin-bottom: 16px;
     }
     
-    .question-group {
+    .subsection-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #6b7280;
+        margin: 0 0 8px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .question-group, .tag-group {
         margin-bottom: 12px;
     }
     
-    .question-label {
+    .question-label, .tag-label {
         display: block;
         font-size: 13px;
         font-weight: 500;
@@ -631,10 +624,10 @@
     
     .question-textarea {
         width: 100%;
-        padding: 8px 12px;
+        padding: 8px 10px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
-        font-size: 14px;
+        font-size: 13px;
         color: #1f2937;
         background: #f9fafb;
         resize: vertical;
@@ -652,40 +645,24 @@
         border-color: #d1d5db;
     }
     
-    /* Tags Section */
-    .tags-section {
-        margin-bottom: 16px;
-    }
-    
-    .tag-group {
-        margin-bottom: 12px;
-    }
-    
-    .tag-label {
-        display: block;
-        font-size: 13px;
-        font-weight: 500;
-        color: #374151;
-        margin-bottom: 6px;
-    }
-    
-    .tag-dropdown {
+    /* Custom Dropdown Styles */
+    .custom-dropdown {
         position: relative;
     }
     
     .dropdown-button {
         width: 100%;
-        padding: 8px 12px;
+        padding: 8px 10px;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
+        font-size: 13px;
         background: #f9fafb;
+        text-align: left;
+        cursor: pointer;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        cursor: pointer;
         transition: all 0.2s ease;
-        font-size: 14px;
-        color: #374151;
     }
     
     .dropdown-button:hover {
@@ -693,62 +670,47 @@
         border-color: #d1d5db;
     }
     
-    .dropdown-text {
-        flex: 1;
-        text-align: left;
+    .dropdown-arrow {
+        font-size: 10px;
         color: #6b7280;
-    }
-    
-    .dropdown-icon {
-        flex-shrink: 0;
-        color: #9ca3af;
-        transition: transform 0.2s ease;
-    }
-    
-    .dropdown-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 10;
     }
     
     .dropdown-menu {
         position: absolute;
-        top: calc(100% + 4px);
+        top: 100%;
         left: 0;
         right: 0;
+        margin-top: 4px;
         background: white;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        z-index: 20;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         max-height: 200px;
         overflow-y: auto;
+        z-index: 100;
     }
     
-    .dropdown-option {
+    .dropdown-item {
         width: 100%;
         padding: 8px 12px;
         border: none;
         background: white;
+        text-align: left;
+        font-size: 13px;
+        cursor: pointer;
         display: flex;
         align-items: center;
         gap: 8px;
-        cursor: pointer;
-        font-size: 14px;
-        color: #374151;
         transition: background 0.15s ease;
     }
     
-    .dropdown-option:hover {
-        background: #f3f4f6;
+    .dropdown-item:hover {
+        background: #f9fafb;
     }
     
-    .dropdown-option.selected {
+    .dropdown-item.selected {
         background: #eff6ff;
-        color: #3b82f6;
+        color: #2563eb;
     }
     
     .checkbox {
@@ -759,17 +721,26 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 10px;
         flex-shrink: 0;
-        background: white;
     }
     
-    .dropdown-option.selected .checkbox {
+    .checkbox.checked {
         background: #3b82f6;
         border-color: #3b82f6;
         color: white;
     }
     
-    .tag-chips {
+    .dropdown-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 99;
+    }
+    
+    .selected-tags {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
@@ -779,39 +750,28 @@
     .tag-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
         padding: 4px 8px;
         background: #eff6ff;
-        color: #3b82f6;
-        border-radius: 4px;
+        color: #1e40af;
         font-size: 12px;
         font-weight: 500;
+        border-radius: 4px;
     }
     
-    .chip-remove {
-        padding: 0;
-        width: 16px;
-        height: 16px;
+    .tag-remove {
+        background: none;
         border: none;
-        background: transparent;
-        color: #3b82f6;
-        cursor: pointer;
-        font-size: 18px;
+        color: #1e40af;
+        font-size: 16px;
         line-height: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 2px;
-        transition: background 0.15s ease;
+        cursor: pointer;
+        padding: 0;
+        margin-left: 2px;
     }
     
-    .chip-remove:hover {
-        background: rgba(59, 130, 246, 0.1);
-    }
-    
-    /* Freeform Section */
-    .freeform-section {
-        margin-bottom: 16px;
+    .tag-remove:hover {
+        color: #1e3a8a;
     }
     
     .note-textarea {
@@ -848,6 +808,9 @@
         font-weight: 500;
         cursor: not-allowed;
         transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
     
     .add-note-button.active {
@@ -857,8 +820,34 @@
         cursor: pointer;
     }
     
-    .add-note-button.active:hover {
+    .add-note-button.active:hover:not(:disabled) {
         background: #2563eb;
+    }
+    
+    .add-note-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .add-note-button.loading {
+        background: #eff6ff;
+        color: #3b82f6;
+        border-color: #93c5fd;
+    }
+    
+    /* Spinner animation */
+    .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid #93c5fd;
+        border-top: 2px solid #3b82f6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
     }
     
     /* Notes Display */
@@ -966,19 +955,19 @@
     
     .note-content {
         font-size: 14px;
-        color: #1f2937;
+        color: #374151;
         line-height: 1.6;
         white-space: pre-wrap;
     }
     
     .notes-empty {
-        padding: 32px 16px;
+        padding: 24px;
         text-align: center;
         color: #9ca3af;
         font-size: 14px;
     }
     
-    /* Loading Skeletons */
+    /* Loading skeletons */
     .skeleton-container {
         padding: 14px;
         background: white;
@@ -988,23 +977,20 @@
     }
     
     .skeleton-line {
-        height: 12px;
+        height: 16px;
         background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
         background-size: 200% 100%;
-        animation: shimmer 1.5s infinite;
+        animation: skeleton-loading 1.5s ease-in-out infinite;
         border-radius: 4px;
         margin-bottom: 8px;
     }
     
-    .skeleton-line:last-child {
+    .skeleton-line.short {
+        width: 60%;
         margin-bottom: 0;
     }
     
-    .skeleton-line.short {
-        width: 60%;
-    }
-    
-    @keyframes shimmer {
+    @keyframes skeleton-loading {
         0% {
             background-position: 200% 0;
         }
@@ -1013,20 +999,20 @@
         }
     }
     
-    /* Error Banner */
+    /* Error banner */
     .error-banner {
-        padding: 16px;
+        padding: 12px;
         background: #fef2f2;
         border: 1px solid #fecaca;
         border-radius: 8px;
         display: flex;
         align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
+        gap: 8px;
+        margin-bottom: 12px;
     }
     
     .error-icon {
-        font-size: 20px;
+        font-size: 16px;
         flex-shrink: 0;
     }
     
@@ -1038,7 +1024,7 @@
     }
     
     .retry-button {
-        padding: 6px 12px;
+        padding: 4px 12px;
         background: #dc2626;
         color: white;
         border: none;
@@ -1046,7 +1032,6 @@
         font-size: 12px;
         font-weight: 500;
         cursor: pointer;
-        flex-shrink: 0;
         transition: background 0.2s ease;
     }
     

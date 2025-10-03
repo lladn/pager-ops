@@ -15,6 +15,7 @@ import (
 	"pager-ops/store"
 
 	"github.com/99designs/keyring"
+	"github.com/PagerDuty/go-pagerduty"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -238,7 +239,7 @@ func NewApp() *App {
 		previousOpenIncidents: make(map[string]database.IncidentData),
 		shutdownChan:          make(chan struct{}),
 		latestResolvedDate:    time.Now().Add(-72 * time.Hour), // Initialize to 3 days ago
-		fetchingIncidents:     make(map[string]bool),          
+		fetchingIncidents:     make(map[string]bool),
 	}
 }
 
@@ -1750,7 +1751,7 @@ func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote 
 			ServiceID:       dbNote.ServiceID,
 			FreeformContent: dbNote.FreeformContent,
 		}
-		
+
 		// Deserialize responses from JSON
 		if dbNote.Responses != "" {
 			var responses []store.NoteResponse
@@ -1758,7 +1759,7 @@ func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote 
 				note.Responses = responses
 			}
 		}
-		
+
 		// Deserialize tags from JSON
 		if dbNote.Tags != "" {
 			var tags []store.NoteTag
@@ -1766,7 +1767,7 @@ func convertDBToStoreNotes(dbNotes []database.SidebarNote) []store.IncidentNote 
 				note.Tags = tags
 			}
 		}
-		
+
 		notes[i] = note
 	}
 	return notes
@@ -1784,21 +1785,21 @@ func convertStoreToDbnotes(storeNotes []store.IncidentNote) []database.SidebarNo
 			ServiceID:       storeNote.ServiceID,
 			FreeformContent: storeNote.FreeformContent,
 		}
-		
+
 		// Serialize responses to JSON
 		if len(storeNote.Responses) > 0 {
 			if responsesJSON, err := json.Marshal(storeNote.Responses); err == nil {
 				dbNote.Responses = string(responsesJSON)
 			}
 		}
-		
+
 		// Serialize tags to JSON
 		if len(storeNote.Tags) > 0 {
 			if tagsJSON, err := json.Marshal(storeNote.Tags); err == nil {
 				dbNote.Tags = string(tagsJSON)
 			}
 		}
-		
+
 		dbNotes[i] = dbNote
 	}
 	return dbNotes
@@ -2223,4 +2224,125 @@ func slicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// NoteInput represents the structured note data from the frontend
+type NoteInput struct {
+	Responses      []store.NoteResponse `json:"responses"`
+	Tags           []store.NoteTag      `json:"tags"`
+	FreeformContent string               `json:"freeform_content"`
+}
+
+// getUserEmail retrieves the current user's email from cache
+func (a *App) getUserEmail() (string, error) {
+	if a.userCache == nil {
+		return "", fmt.Errorf("user cache not initialized")
+	}
+
+	// Try to get from cache first
+	a.userCache.mu.RLock()
+	user := a.userCache.user
+	a.userCache.mu.RUnlock()
+
+	if user != nil {
+		if pdUser, ok := user.(*pagerduty.User); ok && pdUser.Email != "" {
+			return pdUser.Email, nil
+		}
+	}
+
+	// If not in cache or no email, fetch fresh user data
+	if a.client == nil {
+		return "", fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	freshUser, err := a.client.GetCurrentUser()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	// Update cache with fresh data
+	a.userCache.Set(freshUser.ID, freshUser)
+
+	if freshUser.Email == "" {
+		return "", fmt.Errorf("user email not available")
+	}
+
+	return freshUser.Email, nil
+}
+
+// AcknowledgeIncident acknowledges an incident via the PagerDuty API
+func (a *App) AcknowledgeIncident(incidentID string) error {
+	if incidentID == "" {
+		return fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// Get current user's email
+	userEmail, err := a.getUserEmail()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get user email for acknowledge: %v", err))
+		return fmt.Errorf("failed to get user email: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Acknowledging incident %s as user %s", incidentID, userEmail))
+
+	// Call API to acknowledge incident
+	err = a.client.AcknowledgeIncident(incidentID, userEmail)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to acknowledge incident %s: %v", incidentID, err))
+		return fmt.Errorf("failed to acknowledge incident: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Successfully acknowledged incident %s", incidentID))
+
+	// Trigger immediate fetch to update UI quickly
+	// The polling will also pick this up, but this provides instant feedback
+	go a.fetchAndUpdateIncidents()
+
+	return nil
+}
+
+// AddIncidentNote adds a note to an incident via the PagerDuty API
+func (a *App) AddIncidentNote(incidentID string, noteData NoteInput) error {
+	if incidentID == "" {
+		return fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// Format the note content from structured data
+	formattedContent := store.FormatNoteContent(noteData.Responses, noteData.Tags, noteData.FreeformContent)
+
+	// Validate that there is content
+	if strings.TrimSpace(formattedContent) == "" {
+		return fmt.Errorf("note cannot be empty")
+	}
+
+	a.logger.Info(fmt.Sprintf("Adding note to incident %s", incidentID))
+
+	// Call API to create the note
+	err := a.client.CreateIncidentNote(incidentID, formattedContent)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to add note to incident %s: %v", incidentID, err))
+		return fmt.Errorf("failed to add note: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Successfully added note to incident %s", incidentID))
+
+	// Clear sidebar cache for this incident to force refetch
+	// This ensures the new note appears immediately
+	if clearErr := a.db.ClearIncidentSidebarCache(incidentID); clearErr != nil {
+		a.logger.Warn(fmt.Sprintf("Failed to clear sidebar cache: %v", clearErr))
+		// Don't fail the operation if cache clear fails
+	}
+
+	// Emit event to refresh sidebar
+	runtime.EventsEmit(a.ctx, "sidebar-data-updated", incidentID)
+
+	return nil
 }
