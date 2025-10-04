@@ -3,14 +3,14 @@
         servicesConfig, 
         selectedServices, 
         loadOpenIncidents, 
-        loadResolvedIncidents } from '../stores/incidents';
+        loadResolvedIncidents,
+        assignedFilterEnabled } from '../stores/incidents';
     import { SetSelectedServices, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     import { onMount } from 'svelte';
     
     let isOpen = false;
     let filterText = 'All Services';
-    let isAssignedMode = false;
     
     // Local state for immediate UI updates
     let localSelectedServices: string[] = [];
@@ -19,13 +19,14 @@
     $: localSelectedServices = [...$selectedServices];
     
     $: if ($servicesConfig) {
-        updateFilterText(localSelectedServices, isAssignedMode);
+        updateFilterText(localSelectedServices, $assignedFilterEnabled);
     }
     
     onMount(async () => {
         try {
-            isAssignedMode = await GetFilterByUser();
-            updateFilterText(localSelectedServices, isAssignedMode);
+            const isAssigned = await GetFilterByUser();
+            assignedFilterEnabled.set(isAssigned);
+            updateFilterText(localSelectedServices, isAssigned);
         } catch (err) {
             console.error('Failed to get filter mode:', err);
         }
@@ -102,8 +103,8 @@
     }
     
     async function toggleAssignedMode() {
-        const newMode = !isAssignedMode;
-        isAssignedMode = newMode;
+        const newMode = !$assignedFilterEnabled;
+        assignedFilterEnabled.set(newMode);
         
         try {
             await SetFilterByUser(newMode);
@@ -113,25 +114,11 @@
         } catch (err) {
             console.error('Failed to toggle assigned mode:', err);
             // Revert on error
-            isAssignedMode = !newMode;
+            assignedFilterEnabled.set(!newMode);
             updateFilterText(localSelectedServices, !newMode);
         }
     }
     
-    async function selectAllServices() {
-        if (!$servicesConfig) return;
-        
-        const allServiceIds = getAllServiceIds();
-        
-        // Update local state immediately for UI responsiveness
-        localSelectedServices = [...allServiceIds];
-        
-        // Update store and backend
-        selectedServices.set(allServiceIds);
-        await SetSelectedServices(allServiceIds);
-        await loadOpenIncidents();
-        await loadResolvedIncidents();
-    }
     
     async function toggleServiceGroup(service: store.ServiceConfig) {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
@@ -168,6 +155,8 @@
     function isServiceGroupPartiallySelected(service: store.ServiceConfig, selected: string[]): boolean {
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [];
+        
+        if (serviceIds.length === 0) return false;
         const selectedCount = serviceIds.filter(id => selected.includes(id)).length;
         return selectedCount > 0 && selectedCount < serviceIds.length;
     }
@@ -189,7 +178,7 @@
             <!-- Assigned to Me - Added at top -->
             <button class="dropdown-item" on:click={toggleAssignedMode}>
                 <span class="checkbox">
-                    {#if isAssignedMode}
+                    {#if $assignedFilterEnabled}
                         <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                         </svg>
@@ -201,19 +190,6 @@
             <div class="dropdown-divider"></div>
             
             {#if $servicesConfig && $servicesConfig.services.length > 0}
-                <button class="dropdown-item" on:click={selectAllServices}>
-                    <span class="checkbox">
-                        {#if localSelectedServices.length === getAllServiceIds().length}
-                            <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                            </svg>
-                        {/if}
-                    </span>
-                    <span>All Services</span>
-                </button>
-                
-                <div class="dropdown-divider"></div>
-                
                 {#each $servicesConfig.services as service}
                     <button class="dropdown-item" on:click={() => toggleServiceGroup(service)}>
                         <span class="checkbox">

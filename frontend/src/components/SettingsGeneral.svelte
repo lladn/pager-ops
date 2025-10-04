@@ -4,6 +4,7 @@
         availableSounds, 
         loadNotificationConfig, 
         loadAvailableSounds } from '../stores/notifications';
+    import { assignedFilterEnabled } from '../stores/incidents';
     import { 
         ConfigureAPIKey, GetAPIKey, 
         GetFilterByUser, SetFilterByUser, 
@@ -17,7 +18,6 @@
     export let successMessage = '';
     
     let apiKey = '';
-    let filterByUser = true;
     let notificationSnoozed = false;
     let showSoundDropdown = false;
     let browserRedirect = false;
@@ -30,7 +30,8 @@
         }
         
         try {
-            filterByUser = await GetFilterByUser();
+            const isAssigned = await GetFilterByUser();
+            assignedFilterEnabled.set(isAssigned);
         } catch (err) {
             console.error('Failed to get filter setting:', err);
         }
@@ -72,12 +73,15 @@
     }
     
     async function toggleFilterByUser() {
-        filterByUser = !filterByUser;
+        const newValue = !$assignedFilterEnabled;
+        assignedFilterEnabled.set(newValue);
+        
         try {
-            await SetFilterByUser(filterByUser);
+            await SetFilterByUser(newValue);
         } catch (err) {
-            console.error('Failed to update filter setting:', err);
-            filterByUser = !filterByUser; // Revert on error
+            console.error('Failed to toggle filter by user:', err);
+            // Revert on error
+            assignedFilterEnabled.set(!newValue);
         }
     }
     
@@ -167,10 +171,10 @@
                 <p class="setting-description">Display only incidents assigned to you</p>
             </div>
             <button 
-                class="toggle-button"
-                class:active={filterByUser}
-                on:click={toggleFilterByUser}
-            >
+            class="toggle-button"
+            class:active={$assignedFilterEnabled}
+            on:click={toggleFilterByUser}
+        >
                 <span class="toggle-slider"></span>
             </button>
         </div>
