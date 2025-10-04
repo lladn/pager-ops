@@ -88,6 +88,10 @@
         backdrop-filter: blur(4px);
         z-index: 999;
         animation: fadeIn 0.2s ease-out;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     @keyframes fadeIn {
@@ -113,6 +117,10 @@
         z-index: 1000;
         box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
         animation: slideUp 0.3s ease-out;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     @keyframes slideUp {

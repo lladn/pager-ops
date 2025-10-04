@@ -176,6 +176,10 @@
         border-bottom: 1px solid #e0e0e0;
         background: #fafafa;
         flex-shrink: 0;
+    /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .panel-header h5 {
@@ -231,6 +235,10 @@
         border-bottom: 1px solid #e0e0e0;
         background: white;
         flex-shrink: 0;
+    /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .panel-tab {
@@ -244,6 +252,10 @@
         color: #6b7280;
         cursor: pointer;
         transition: all 0.2s;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .panel-tab:hover {
