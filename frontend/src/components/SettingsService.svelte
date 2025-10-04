@@ -136,7 +136,7 @@
 <div class="service-settings">
     <div class="form-group">
         <!-- svelte-ignore a11y-label-has-associated-control -->
-        <label>Upload Services Configuration</label>
+        <label>Upload Services NoteKit Configuration</label>
         <input 
             type="file" 
             accept=".json"
@@ -201,6 +201,10 @@
 <style>
     .service-settings {
         padding: 20px;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .form-group {

@@ -72,28 +72,48 @@ type CreateIncidentNoteRequest struct {
 func FormatNoteContent(responses []NoteResponse, tags []NoteTag, freeformContent string) string {
 	var parts []string
 
-	// Add first question and answer separately
-	if len(responses) > 0 && strings.TrimSpace(responses[0].Answer) != "" {
-		parts = append(parts, responses[0].Question)
-		parts = append(parts, responses[0].Answer)
-		parts = append(parts, "") // Blank line after first Q&A
-	}
-
-	// Add tags
+	// Check if there are any tags with values
+	hasTags := false
 	for _, tag := range tags {
 		if len(tag.SelectedValues) > 0 {
-			parts = append(parts, fmt.Sprintf("%s:", tag.TagName))
-			parts = append(parts, tag.SelectedValues...)
-			parts = append(parts, "") // Empty line after tag group
+			hasTags = true
+			break
 		}
 	}
 
-	// Add remaining question responses (from index 1 onwards)
-	for i := 1; i < len(responses); i++ {
-		if strings.TrimSpace(responses[i].Answer) != "" {
-			parts = append(parts, responses[i].Question)
-			parts = append(parts, responses[i].Answer)
-			parts = append(parts, "") // Blank line after each Q&A
+	if hasTags {
+		// If tags exist, put first question before tags
+		if len(responses) > 0 && strings.TrimSpace(responses[0].Answer) != "" {
+			parts = append(parts, responses[0].Question)
+			parts = append(parts, responses[0].Answer)
+			parts = append(parts, "") // Blank line after first Q&A
+		}
+
+		// Add tags
+		for _, tag := range tags {
+			if len(tag.SelectedValues) > 0 {
+				parts = append(parts, fmt.Sprintf("%s:", tag.TagName))
+				parts = append(parts, tag.SelectedValues...)
+				parts = append(parts, "") // Empty line after tag group
+			}
+		}
+
+		// Add remaining question responses (from index 1 onwards)
+		for i := 1; i < len(responses); i++ {
+			if strings.TrimSpace(responses[i].Answer) != "" {
+				parts = append(parts, responses[i].Question)
+				parts = append(parts, responses[i].Answer)
+				parts = append(parts, "") // Blank line after each Q&A
+			}
+		}
+	} else {
+		// No tags, just add all responses in order
+		for _, response := range responses {
+			if strings.TrimSpace(response.Answer) != "" {
+				parts = append(parts, response.Question)
+				parts = append(parts, response.Answer)
+				parts = append(parts, "") // Blank line after each Q&A
+			}
 		}
 	}
 

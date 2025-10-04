@@ -278,6 +278,10 @@
 <style>
     .general-settings {
         padding: 0;
+    /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .settings-section {
