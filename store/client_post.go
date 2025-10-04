@@ -72,21 +72,28 @@ type CreateIncidentNoteRequest struct {
 func FormatNoteContent(responses []NoteResponse, tags []NoteTag, freeformContent string) string {
 	var parts []string
 
-	// Add question responses
-	for _, response := range responses {
-		if strings.TrimSpace(response.Answer) != "" {
-			parts = append(parts, fmt.Sprintf("%s\n* %s\n", response.Question, response.Answer))
-		}
+	// Add first question and answer separately
+	if len(responses) > 0 && strings.TrimSpace(responses[0].Answer) != "" {
+		parts = append(parts, responses[0].Question)
+		parts = append(parts, responses[0].Answer)
+		parts = append(parts, "") // Blank line after first Q&A
 	}
 
 	// Add tags
 	for _, tag := range tags {
 		if len(tag.SelectedValues) > 0 {
 			parts = append(parts, fmt.Sprintf("%s:", tag.TagName))
-			for _, value := range tag.SelectedValues {
-				parts = append(parts, value)
-			}
+			parts = append(parts, tag.SelectedValues...)
 			parts = append(parts, "") // Empty line after tag group
+		}
+	}
+
+	// Add remaining question responses (from index 1 onwards)
+	for i := 1; i < len(responses); i++ {
+		if strings.TrimSpace(responses[i].Answer) != "" {
+			parts = append(parts, responses[i].Question)
+			parts = append(parts, responses[i].Answer)
+			parts = append(parts, "") // Blank line after each Q&A
 		}
 	}
 
