@@ -3,6 +3,7 @@
     import { GetServiceConfigByServiceID, AddIncidentNote } from '../../wailsjs/go/main/App';
     import { store, type database } from '../../wailsjs/go/models';
     import { onMount, onDestroy } from 'svelte';
+    import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     
     type IncidentData = database.IncidentData;
     type ServiceConfig = store.ServiceConfig;
@@ -24,7 +25,6 @@
     let lastIncidentId = '';
     let saveTimeout: number | null = null;
     let draftSaveStatus = ''; // 'saving', 'saved', or ''
-    let draftTimestamp: number | null = null;
     
     // Dropdown state for custom dropdowns
     let openDropdown: string | null = null;
@@ -47,6 +47,56 @@
         const hasTags = Object.values(tags).some(v => v && v.length > 0);
         const hasFreeform = freeform ? freeform.trim().length > 0 : false;
         return hasQuestions || hasTags || hasFreeform;
+    }
+    
+    // NEW: Linkify URLs in text content with XSS prevention
+    function linkifyText(text: string): string {
+        if (!text) return '';
+        
+        // Escape HTML to prevent XSS
+        const escapeHtml = (unsafe: string): string => {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        };
+        
+        // Escape the text first
+        const escaped = escapeHtml(text);
+        
+        // URL regex pattern - matches http:// and https:// URLs
+        const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/g;
+        
+        // Replace URLs with clickable links
+        return escaped.replace(urlRegex, (url) => {
+            // Additional safety check - only allow http and https
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                return url;
+            }
+            return `<a href="#" data-url="${url}" class="note-link">${url}</a>`;
+        });
+    }
+    
+    // NEW: Handle link clicks - open in default browser
+    function handleLinkClick(event: MouseEvent) {
+        const target = event.target as HTMLElement;
+        
+        // Check if clicked element is a link
+        if (target.tagName === 'A' && target.classList.contains('note-link')) {
+            event.preventDefault();
+            const url = target.getAttribute('data-url');
+            
+            if (url) {
+                try {
+                    BrowserOpenURL(url);
+                } catch (err) {
+                    console.error('Failed to open URL in browser:', err);
+                    alert(`Failed to open URL: ${err}`);
+                }
+            }
+        }
     }
     
     // Load service configuration when incident changes
@@ -77,24 +127,23 @@
     }
     
     async function loadServiceConfig() {
-        if (!incident?.service_id) return;
+    if (!incident?.service_id) return;
+    
+    loadingConfig = true;
+    try {
+        serviceConfig = await GetServiceConfigByServiceID(incident.service_id);
+        serviceTypes = serviceConfig?.types || null;  
         
-        loadingConfig = true;
-        try {
-            serviceConfig = await GetServiceConfigByServiceID(incident.service_id);
-            serviceTypes = serviceConfig?.types || null;
-            
-            // Initialize tag selections with empty arrays
-            if (serviceTypes?.tags) {
-                serviceTypes.tags.forEach(tag => {
-                    if (!tagSelections[tag.name]) {
-                        tagSelections[tag.name] = [];
+        // Initialize tag selections
+        if (serviceTypes?.tags) {
+            serviceTypes.tags.forEach(tag => {
+                if (!tagSelections[tag.name]) {
+                    tagSelections[tag.name] = [];
                     }
                 });
             }
         } catch (err) {
             console.error('Failed to load service config:', err);
-            serviceTypes = null;
         } finally {
             loadingConfig = false;
         }
@@ -105,48 +154,40 @@
     }
     
     function saveDraftToLocalStorage(incidentId: string) {
-        if (!incidentId) return;
-        
-        const draftKey = getDraftKey(incidentId);
-        const draftData = {
-            questionResponses: { ...questionResponses },
-            tagSelections: { ...tagSelections },
-            freeformNote,
-            timestamp: Date.now(),
-            serviceId: incident?.service_id
-        };
-        
-        try {
-            localStorage.setItem(draftKey, JSON.stringify(draftData));
-        } catch (err) {
-            console.error('Failed to save draft:', err);
-        }
+    const draftKey = getDraftKey(incidentId);
+    const draftData = {
+        questionResponses,
+        tagSelections,
+        freeformNote
+    };
+    
+    try {
+        localStorage.setItem(draftKey, JSON.stringify(draftData));
+    } catch (err) {
+        console.error('Failed to save draft:', err);
     }
+}
     
     function restoreDraftFromLocalStorage(incidentId: string) {
-        if (!incidentId) return;
-        
         const draftKey = getDraftKey(incidentId);
+        
         try {
-            const saved = localStorage.getItem(draftKey);
-            if (saved) {
-                const draftData = JSON.parse(saved);
+            const stored = localStorage.getItem(draftKey);
+            if (stored) {
+                const draftData = JSON.parse(stored);
+                questionResponses = draftData.questionResponses || {};
+                tagSelections = draftData.tagSelections || {};
+                freeformNote = draftData.freeformNote || '';
                 
-                // Only restore if it's for the same service
-                if (draftData.serviceId === incident?.service_id) {
-                    questionResponses = draftData.questionResponses || {};
-                    tagSelections = draftData.tagSelections || {};
-                    freeformNote = draftData.freeformNote || '';
-                    draftTimestamp = draftData.timestamp || null;
-                    draftSaveStatus = draftTimestamp ? 'saved' : '';
-                }
+                // Show saved status if draft exists
+                draftSaveStatus = 'saved';
             }
         } catch (err) {
             console.error('Failed to restore draft:', err);
         }
     }
     
-    function saveDraft() {
+        function saveDraft() {
         draftSaveStatus = 'saving';
         
         if (saveTimeout) {
@@ -157,17 +198,15 @@
             if (incident?.incident_id) {
                 saveDraftToLocalStorage(incident.incident_id);
                 draftSaveStatus = 'saved';
-                draftTimestamp = Date.now();
             }
         }, 500);
     }
     
-    function clearDraft(incidentId: string) {
+        function clearDraft(incidentId: string) {
         const draftKey = getDraftKey(incidentId);
         try {
             localStorage.removeItem(draftKey);
             draftSaveStatus = '';
-            draftTimestamp = null;
         } catch (err) {
             console.error('Failed to clear draft:', err);
         }
@@ -218,7 +257,7 @@
         const selected = tagSelections[tagName] || [];
         
         if (selected.length === 0) {
-            return 'Select';
+            return 'Select...';
         }
         
         if (isSingle) {
@@ -303,30 +342,29 @@
     
     function formatDate(date: Date | string): string {
         const d = typeof date === 'string' ? new Date(date) : date;
-        return d.toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-    
-    function getTimeSince(timestamp: number): string {
-        const seconds = Math.floor((Date.now() - timestamp) / 1000);
-        
-        if (seconds < 60) return 'just now';
+        const now = new Date();
+        const diff = now.getTime() - d.getTime();
+        const seconds = Math.floor(diff / 1000);
         const minutes = Math.floor(seconds / 60);
-        if (minutes < 60) return `${minutes}m ago`;
         const hours = Math.floor(minutes / 60);
-        if (hours < 24) return `${hours}h ago`;
         const days = Math.floor(hours / 24);
-        return `${days}d ago`;
+        
+        if (days > 7) {
+            return d.toLocaleDateString();
+        } else if (days > 0) {
+            return `${days}d ago`;
+        } else if (hours > 0) {
+            return `${hours}h ago`;
+        } else if (minutes > 0) {
+            return `${minutes}m ago`;
+        } else {
+            return 'Just now';
+        }
     }
     
-    async function retry() {
+    function retry() {
         if (incident?.incident_id) {
-            await loadIncidentSidebarData(incident.incident_id);
+            loadIncidentSidebarData(incident.incident_id);
         }
     }
 </script>
@@ -337,9 +375,9 @@
         <div class="section-header">
             <p class="section-title">Add Notes</p>
             {#if draftSaveStatus === 'saving'}
-                <span class="draft-status saving">Saving...</span>
-            {:else if draftSaveStatus === 'saved' && draftTimestamp}
-                <span class="draft-status saved">Draft saved {getTimeSince(draftTimestamp)}</span>
+            <span class="draft-status saving">Saving draft...</span>
+            {:else if draftSaveStatus === 'saved'}
+                <span class="draft-status saved">Draft saved</span>
             {/if}
         </div>
         
@@ -386,7 +424,16 @@
                                     type="button"
                                 >
                                     <span>{getDropdownText(tag.name, isSingle)}</span>
-                                    <span class="dropdown-arrow">▼</span>
+                                    <svg 
+                                        class="dropdown-arrow" 
+                                        class:rotated={openDropdown === tag.name} 
+                                        width="14" 
+                                        height="14" 
+                                        viewBox="0 0 20 20" 
+                                        fill="currentColor"
+                                    >
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </button>
                                 
                                 {#if openDropdown === tag.name}
@@ -528,10 +575,12 @@
                         </div>
                     {/if}
                     
-                    <!-- Display freeform content -->
+                    <!-- Display freeform content with linkified URLs -->
                     {#if note.freeform_content || note.content}
-                        <div class="note-content">
-                            {note.freeform_content || note.content}
+                        <!-- svelte-ignore a11y-click-events-have-key-events -->
+                        <!-- svelte-ignore a11y-no-static-element-interactions -->
+                        <div class="note-content" on:click={handleLinkClick}>
+                            {@html linkifyText(note.freeform_content || note.content)}
                         </div>
                     {/if}
                 </div>
@@ -671,8 +720,13 @@
     }
     
     .dropdown-arrow {
-        font-size: 10px;
-        color: #6b7280;
+    color: #9ca3af;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    }
+
+    .dropdown-arrow.rotated {
+        transform: rotate(180deg);
     }
     
     .dropdown-menu {
@@ -799,12 +853,12 @@
     }
     
     .add-note-button {
-        padding: 8px 16px;
+        padding: 4px 8px;
         background: transparent;
         color: #d1d5db;
         border: 1px solid #e5e7eb;
         border-radius: 6px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 500;
         cursor: not-allowed;
         transition: all 0.2s ease;
@@ -954,10 +1008,33 @@
     }
     
     .note-content {
-        font-size: 14px;
-        color: #374151;
-        line-height: 1.6;
-        white-space: pre-wrap;
+    font-size: 12px;
+    color: #374151;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    overflow: hidden;
+    }
+
+    .note-content :global(a.note-link) {
+        color: #2563eb;
+        text-decoration: underline;
+        cursor: pointer;
+        word-break: break-all;
+        transition: all 0.15s ease;
+    }
+
+    .note-content :global(a.note-link:hover) {
+        color: #1d4ed8;
+        background: #eff6ff;
+        text-decoration: underline;
+    }
+
+    .note-content :global(a.note-link:active) {
+        color: #1e40af;
     }
     
     .notes-empty {
