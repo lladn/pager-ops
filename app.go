@@ -1282,6 +1282,9 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	} else {
 		enabledServices = serviceIDs
 	}
+	
+	// Check if we're in assigned filter mode
+	filterByUser := a.filterByUser
 	a.mu.RUnlock()
 
 	// Don't fetch if polling is active - just return cached data
@@ -1301,12 +1304,18 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
+	// When in assigned mode, return all incidents without service filtering
+	// The union of (selected services + assigned incidents) is already in the database
+	if filterByUser {
+		return allIncidents, nil
+	}
+
 	// If no services selected, return all
 	if len(enabledServices) == 0 {
 		return allIncidents, nil
 	}
 
-	// Filter by enabled services only
+	// Filter by enabled services only (when NOT in assigned mode)
 	serviceMap := make(map[string]bool)
 	for _, id := range enabledServices {
 		serviceMap[id] = true

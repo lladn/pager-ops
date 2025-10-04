@@ -25,6 +25,9 @@ export const panelWidth = writable(320);
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
+// Shared store for assigned filter state (synced across ServiceFilter and SettingsGeneral)
+export const assignedFilterEnabled = writable<boolean>(false);
+
 // Store for selected incident (for panel display)
 export const sidebarOpen = writable(false);
 export const selectedIncident = writable<IncidentData | null>(null);
