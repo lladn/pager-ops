@@ -7,6 +7,8 @@ import (
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
+	"github.com/wailsapp/wails/v2/pkg/menu"
+	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -35,6 +37,27 @@ func main() {
 		version = "Missing Version file"
 	}
 
+	// Create application menu with zoom support
+	appMenu := menu.NewMenu()
+
+	// Add App Menu for macOS
+	appMenu.Append(menu.AppMenu())
+
+	// Add Edit Menu (enables Cmd+C, Cmd+V, etc.)
+	appMenu.Append(menu.EditMenu())
+
+	// Add View Menu with Zoom options
+	viewMenu := appMenu.AddSubmenu("View")
+	viewMenu.AddText("Zoom In", keys.CmdOrCtrl("="), func(_ *menu.CallbackData) {
+		app.ZoomIn()
+	})
+	viewMenu.AddText("Zoom Out", keys.CmdOrCtrl("-"), func(_ *menu.CallbackData) {
+		app.ZoomOut()
+	})
+	viewMenu.AddText("Actual Size", keys.CmdOrCtrl("0"), func(_ *menu.CallbackData) {
+		app.ZoomReset()
+	})
+
 	// Create application with options
 	err = wails.Run(&options.App{
 		Title:             "PagerOps",
@@ -47,6 +70,7 @@ func main() {
 		StartHidden:       false,
 		HideWindowOnClose: false,
 		AlwaysOnTop:       false,
+		Menu:              appMenu,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -56,7 +80,6 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		// CSSDragProperty and CSSDragValue for custom drag handling
 		CSSDragProperty:    "--wails-draggable",
 		CSSDragValue:       "drag",
 		LogLevel:           logger.INFO,

@@ -141,3 +141,15 @@ export function UnsnoozeNotificationSound() {
 export function UploadServicesConfig(arg1) {
   return window['go']['main']['App']['UploadServicesConfig'](arg1);
 }
+
+export function ZoomIn() {
+  return window['go']['main']['App']['ZoomIn']();
+}
+
+export function ZoomOut() {
+  return window['go']['main']['App']['ZoomOut']();
+}
+
+export function ZoomReset() {
+  return window['go']['main']['App']['ZoomReset']();
+}
