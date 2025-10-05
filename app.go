@@ -2355,3 +2355,38 @@ func (a *App) AddIncidentNote(incidentID string, noteData NoteInput) error {
 
 	return nil
 }
+
+
+// ZoomIn increases the zoom level
+func (a *App) ZoomIn() {
+	runtime.WindowExecJS(a.ctx, `
+		(function() {
+			var currentZoom = parseFloat(document.body.style.zoom || 1);
+			var newZoom = Math.min(currentZoom + 0.1, 3.0);
+			document.body.style.zoom = newZoom.toString();
+			localStorage.setItem('appZoom', newZoom.toString());
+		})();
+	`)
+}
+
+// ZoomOut decreases the zoom level
+func (a *App) ZoomOut() {
+	runtime.WindowExecJS(a.ctx, `
+		(function() {
+			var currentZoom = parseFloat(document.body.style.zoom || 1);
+			var newZoom = Math.max(currentZoom - 0.1, 0.5);
+			document.body.style.zoom = newZoom.toString();
+			localStorage.setItem('appZoom', newZoom.toString());
+		})();
+	`)
+}
+
+// ZoomReset resets zoom to 100%
+func (a *App) ZoomReset() {
+	runtime.WindowExecJS(a.ctx, `
+		(function() {
+			document.body.style.zoom = '1';
+			localStorage.setItem('appZoom', '1');
+		})();
+	`)
+}
