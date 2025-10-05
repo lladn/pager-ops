@@ -31,13 +31,15 @@
         }
     }
     
-    function startResize(event: MouseEvent) {
+        function startResize(event: MouseEvent) {
+        event.preventDefault(); 
         isResizing = true;
         startX = event.clientX;
         startWidth = $panelWidth;
         
         document.body.style.cursor = 'ew-resize';
         document.body.style.userSelect = 'none';
+        document.body.classList.add('resizing'); // Add class for global no-select
         
         document.addEventListener('mousemove', handleResize);
         document.addEventListener('mouseup', stopResize);
@@ -52,10 +54,11 @@
         panelWidth.set(newWidth);
     }
     
-    function stopResize() {
+        function stopResize() {
         isResizing = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        document.body.classList.remove('resizing'); 
         
         document.removeEventListener('mousemove', handleResize);
         document.removeEventListener('mouseup', stopResize);
@@ -158,6 +161,11 @@
         background: transparent;
         z-index: 10;
         transition: background 0.2s;
+        /* Prevent text selection during resize */
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .resize-handle:hover {
