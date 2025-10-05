@@ -840,6 +840,7 @@
         font-family: inherit;
         min-height: 80px;
         transition: all 0.2s ease;
+        margin-bottom: 4px; 
     }
 
     .note-textarea::placeholder {
