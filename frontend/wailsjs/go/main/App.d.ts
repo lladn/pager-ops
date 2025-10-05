@@ -73,3 +73,9 @@ export function ToggleServiceDisabled(arg1:any):Promise<void>;
 export function UnsnoozeNotificationSound():Promise<void>;
 
 export function UploadServicesConfig(arg1:string):Promise<void>;
+
+export function ZoomIn():Promise<void>;
+
+export function ZoomOut():Promise<void>;
+
+export function ZoomReset():Promise<void>;
