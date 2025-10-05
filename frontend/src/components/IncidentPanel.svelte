@@ -146,6 +146,10 @@
         justify-content: center;
         height: 400px;
         color: #9ca3af;
+        /* Prevent accidental text highlight */
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .empty-state svg {
