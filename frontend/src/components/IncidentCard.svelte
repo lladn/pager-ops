@@ -15,7 +15,7 @@
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     $: isSelected = $selectedIncident?.incident_id === incident.incident_id;
     
-    // Acknowledgment button visibility logic - Option 1: Status-Based Re-trigger
+    // Acknowledgment button visibility logic
     $: userAck = $userAcknowledgedIncidents.get(incident.incident_id);
     $: showAckButton = 
         incident.status !== 'resolved' && 

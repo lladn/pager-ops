@@ -1854,15 +1854,23 @@ func (a *App) cleanupOldSidebarData() {
 	for {
 		select {
 		case <-a.shutdownChan:
-			a.logger.Info("Sidebar cleanup routine stopped by shutdown signal")
+			a.logger.Info("Cleanup routine stopped by shutdown signal")
 			return
 		case <-ticker.C:
-			cutoffDate := time.Now().Add(-30 * 24 * time.Hour) // 30 days ago
-
-			if err := a.db.CleanupOldSidebarData(cutoffDate); err != nil {
+			// Clean up sidebar data older than 30 days
+			sidebarCutoff := time.Now().Add(-30 * 24 * time.Hour)
+			if err := a.db.CleanupOldSidebarData(sidebarCutoff); err != nil {
 				a.logger.Error(fmt.Sprintf("Failed to cleanup old sidebar data: %v", err))
 			} else {
 				a.logger.Info("Successfully cleaned up old sidebar data")
+			}
+
+			// Clean up incidents older than 90 days (3 months)
+			incidentCutoff := time.Now().Add(-90 * 24 * time.Hour)
+			if err := a.db.CleanupOldIncidents(incidentCutoff); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to cleanup old incidents: %v", err))
+			} else {
+				a.logger.Info("Successfully cleaned up old incidents (older than 90 days)")
 			}
 		}
 	}
