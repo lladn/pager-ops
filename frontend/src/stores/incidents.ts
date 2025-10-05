@@ -339,11 +339,11 @@ export function getUrgency(incident: IncidentData): string {
 }
 
 
-// Track user acknowledgments: incident_id -> {updated_at: timestamp when user clicked}
-export const userAcknowledgedIncidents = writable<Map<string, {updated_at: string}>>(new Map());
+// Track user acknowledgments: incident_id -> {updated_at: timestamp when user clicked, status: status when acknowledged}
+export const userAcknowledgedIncidents = writable<Map<string, {updated_at: string, status: string}>>(new Map());
 
 // Load acknowledgments from localStorage on init
-function loadUserAcknowledgments(): Map<string, {updated_at: string}> {
+function loadUserAcknowledgments(): Map<string, {updated_at: string, status: string}> {
     try {
         const stored = localStorage.getItem('user_acknowledged_incidents');
         if (stored) {
@@ -359,15 +359,15 @@ function loadUserAcknowledgments(): Map<string, {updated_at: string}> {
 // Initialize acknowledgments from localStorage
 userAcknowledgedIncidents.set(loadUserAcknowledgments());
 
-// Mark incident as acknowledged at current updated_at timestamp
-export function markIncidentAcknowledged(incidentId: string, incidentUpdatedAt: string) {
+// Mark incident as acknowledged at current updated_at timestamp and status
+export function markIncidentAcknowledged(incidentId: string, incidentUpdatedAt: string, incidentStatus: string) {
     userAcknowledgedIncidents.update(acks => {
-        // Store the incident's updated_at timestamp when user clicked
-        acks.set(incidentId, { updated_at: incidentUpdatedAt });
+        // Store the incident's updated_at timestamp and status when user clicked
+        acks.set(incidentId, { updated_at: incidentUpdatedAt, status: incidentStatus });
         
         // Persist to localStorage
         try {
-            const obj: Record<string, {updated_at: string}> = {};
+            const obj: Record<string, {updated_at: string, status: string}> = {};
             acks.forEach((value, key) => {
                 obj[key] = value;
             });
@@ -380,14 +380,15 @@ export function markIncidentAcknowledged(incidentId: string, incidentUpdatedAt: 
     });
 }
 
-// Optional: Cleanup resolved incidents from acknowledgment storage
+
+// Cleanup resolved incidents from acknowledgment storage
 export function cleanupResolvedAcknowledgments(resolvedIncidentIds: string[]) {
     userAcknowledgedIncidents.update(acks => {
         resolvedIncidentIds.forEach(id => acks.delete(id));
         
         // Persist to localStorage
         try {
-            const obj: Record<string, {updated_at: string}> = {};
+            const obj: Record<string, {updated_at: string, status: string}> = {};
             acks.forEach((value, key) => {
                 obj[key] = value;
             });

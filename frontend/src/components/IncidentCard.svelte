@@ -11,16 +11,17 @@
     
     $: statusColor = getStatusColor(incident.status);
     $: statusLabel = getStatusLabel(incident.status);
+    $: statusBgColor = getStatusBgColor(incident.status);
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     $: isSelected = $selectedIncident?.incident_id === incident.incident_id;
     
-    // Acknowledgment button visibility logic
+    // Acknowledgment button visibility logic - Option 1: Status-Based Re-trigger
     $: userAck = $userAcknowledgedIncidents.get(incident.incident_id);
     $: showAckButton = 
         incident.status !== 'resolved' && 
         (
             !userAck || // Never acknowledged
-            new Date(incident.updated_at) > new Date(userAck.updated_at) // Incident updated after user ack'd
+            (incident.status === 'triggered' && (userAck.status === 'acknowledged' || userAck.status === 'resolved')) // Status changed back to triggered
         );
     
     // Feedback states for action buttons
@@ -35,11 +36,24 @@
             case 'triggered':
                 return '#ef4444'; // red
             case 'acknowledged':
-                return '#f59e0b'; // amber / orange
+                return '#eab308'; // yellow
             case 'resolved':
                 return '#10b981'; // green
             default:
                 return '#6b7280'; // gray
+        }
+    }
+    
+    function getStatusBgColor(status: string): string {
+        switch (status) {
+            case 'triggered':
+                return '#fef2f2'; // red light background
+            case 'acknowledged':
+                return '#fefce8'; // yellow light background
+            case 'resolved':
+                return '#f0fdf4'; // green light background
+            default:
+                return '#f9fafb'; // gray light background
         }
     }
     
@@ -97,8 +111,8 @@
             // Call backend to acknowledge incident
             await AcknowledgeIncident(incident.incident_id);
             
-            // Mark as acknowledged locally for instant UI feedback
-            markIncidentAcknowledged(incident.incident_id, incident.updated_at);
+            // Mark as acknowledged locally for instant UI feedback with current status
+            markIncidentAcknowledged(incident.incident_id, incident.updated_at, incident.status);
             
             console.log(`Incident ${incident.incident_id} acknowledged successfully`);
             
@@ -143,22 +157,19 @@
     </div>
     
     <div class="incident-header">
-        <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
+        <div class="title-row">
+            <span 
+                class="status-circle" 
+                style="background: {statusColor}; box-shadow: 0 0 0 3px {statusBgColor};"
+                title={statusLabel}
+            ></span>
+            <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
+        </div>
     </div>
     
     <div class="incident-details">
         <div class="service-row">
             <span class="service-name" style="color: {serviceColor}">{incident.service_summary || 'Unknown Service'}</span>
-            <span class="status-badge outlined" style="color: {statusColor}; border-color: {statusColor}">
-                {#if incident.status === 'triggered'}
-                    <span class="status-icon">⚠</span>
-                {:else if incident.status === 'acknowledged'}
-                    <span class="status-icon">⏱</span>
-                {:else if incident.status === 'resolved'}
-                    <span class="status-icon">✓</span>
-                {/if}
-                {statusLabel}
-            </span>
         </div>
         <div class="meta-row">
             <span class="incident-time">{formatTime(incident.created_at)}</span>
@@ -277,6 +288,19 @@
         padding-right: 60px;
     }
     
+    .title-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .status-circle {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+    
     .incident-title {
         font-size: 15px;
         font-weight: 600;
@@ -288,6 +312,7 @@
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
+        flex: 1;
     }
     
     .incident-details {
@@ -305,23 +330,6 @@
     .service-name {
         font-weight: 500;
         font-size: 13px;
-    }
-    
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        font-weight: 600;
-        white-space: nowrap;
-        background: white;            
-        border: 1px solid transparent; 
-        padding: 2px 6px;
-        border-radius: 4px;
-    }
-    
-    .status-icon {
-        font-size: 10px;
     }
     
     .meta-row {
