@@ -85,7 +85,7 @@ func main() {
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.ERROR,
 		Mac: &mac.Options{
-			TitleBar: mac.TitleBarHiddenInset(),
+			TitleBar: mac.TitleBarHidden(),
 			About: &mac.AboutInfo{
 				Title: "PagerOps",
 				Message: "Monitor and manage your Incidents\n \n" +
