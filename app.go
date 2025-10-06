@@ -19,7 +19,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App struct - NO FIELDS RENAMED, only new fields added
 type App struct {
 	ctx                   context.Context
 	db                    *database.DB
@@ -257,8 +256,23 @@ func (a *App) startup(
 		a.logger.Info("PagerOps starting up...")
 	}
 
-	// Initialize database
-	dbPath := filepath.Join(".", "incidents.db")
+	// Initialize database with proper data directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get home directory: %v", err))
+		runtime.LogError(ctx, fmt.Sprintf("Failed to get home directory: %v", err))
+		return
+	}
+
+	// Create data directory in user's home (similar to logs)
+	dataDir := filepath.Join(homeDir, "Library", "Application Support", "pager-ops")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to create data directory: %v", err))
+		runtime.LogError(ctx, fmt.Sprintf("Failed to create data directory: %v", err))
+		return
+	}
+
+	dbPath := filepath.Join(dataDir, "incidents.db")
 	a.logger.Info(fmt.Sprintf("Initializing database at: %s", dbPath))
 
 	db, err := database.NewDB(dbPath)
@@ -2360,6 +2374,47 @@ func (a *App) AddIncidentNote(incidentID string, noteData NoteInput) error {
 
 	// Emit event to refresh sidebar
 	runtime.EventsEmit(a.ctx, "sidebar-data-updated", incidentID)
+
+	return nil
+}
+
+// ResolveIncident resolves an incident via the PagerDuty API
+func (a *App) ResolveIncident(incidentID string) error {
+	if incidentID == "" {
+		return fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// Get current user's email
+	userEmail, err := a.getUserEmail()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get user email for resolve: %v", err))
+		return fmt.Errorf("failed to get user email: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Resolving incident %s as user %s", incidentID, userEmail))
+
+	// Call API to resolve incident
+	err = a.client.ResolveIncident(incidentID, userEmail)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to resolve incident %s: %v", incidentID, err))
+		return err
+	}
+
+	a.logger.Info(fmt.Sprintf("Successfully resolved incident %s", incidentID))
+
+	// Force immediate refresh of both incident lists
+	go func() {
+		// Small delay to let PagerDuty process the change
+		time.Sleep(1 * time.Second)
+		a.fetchServiceIncidents()
+		a.fetchUserIncidents()
+		time.Sleep(500 * time.Millisecond)
+		a.fetchResolvedIncidentsSince()
+	}()
 
 	return nil
 }
