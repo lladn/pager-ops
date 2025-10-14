@@ -398,8 +398,24 @@ func (a *App) fetchAndUpdateIncidents() {
 	a.mu.RUnlock()
 
 	if shouldFilterByUser {
-		a.fetchUserIncidents()
+		// When filtering by user, fetch BOTH service and user incidents
+		// This ensures we get the union of selected services AND assigned incidents
+		var wg sync.WaitGroup
+		wg.Add(2)
+		
+		go func() {
+			defer wg.Done()
+			a.fetchServiceIncidents()
+		}()
+		
+		go func() {
+			defer wg.Done()
+			a.fetchUserIncidents()
+		}()
+		
+		wg.Wait()
 	} else {
+		// Only fetch service incidents when not filtering by user
 		a.fetchServiceIncidents()
 	}
 }
@@ -418,6 +434,7 @@ func (a *App) processAndUpdateIncidents(
 	// Get selected services for filtering
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
+	filterByUser := a.filterByUser
 	a.mu.RUnlock()
 
 	// Collect incident IDs from current fetch
@@ -448,13 +465,18 @@ func (a *App) processAndUpdateIncidents(
 		currentMap[incident.IncidentID] = true
 	}
 
-	// Find incidents that are in DB but not in current API response
-	for _, existing := range existingOpenIncidents {
-		if !currentMap[existing.IncidentID] {
-			// Only mark as stale if it's from the same service set we're fetching
-			if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
-				staleIDs = append(staleIDs, existing.IncidentID)
-				a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
+	// Only mark incidents as stale when NOT in user filter mode
+	// In user filter mode, we're getting a union of service + user incidents
+	// so we shouldn't mark anything as stale based on a single fetch
+	if !filterByUser && source == "services" {
+		// Find incidents that are in DB but not in current API response
+		for _, existing := range existingOpenIncidents {
+			if !currentMap[existing.IncidentID] {
+				// Only mark as stale if it's from the same service set we're fetching
+				if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
+					staleIDs = append(staleIDs, existing.IncidentID)
+					a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
+				}
 			}
 		}
 	}
