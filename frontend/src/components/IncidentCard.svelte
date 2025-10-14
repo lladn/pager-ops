@@ -101,28 +101,29 @@
     }
     
     async function handleAcknowledge(event: MouseEvent) {
-        event.stopPropagation();
+    event.stopPropagation();
+    
+    if (acknowledging) return;
+    
+    acknowledging = true;
+    
+    try {
+        // Call backend to acknowledge incident
+        await AcknowledgeIncident(incident.incident_id);
         
-        if (acknowledging) return;
+        // Mark as acknowledged locally with current incident status
+        // This ensures we track the exact status when user clicked acknowledge
+        markIncidentAcknowledged(incident.incident_id, incident.updated_at, incident.status);
         
-        acknowledging = true;
+        console.log(`Incident ${incident.incident_id} acknowledged successfully`);
         
-        try {
-            // Call backend to acknowledge incident
-            await AcknowledgeIncident(incident.incident_id);
-            
-            // Mark as acknowledged locally for instant UI feedback with current status
-            markIncidentAcknowledged(incident.incident_id, incident.updated_at, incident.status);
-            
-            console.log(`Incident ${incident.incident_id} acknowledged successfully`);
-            
-        } catch (err) {
-            console.error('Failed to acknowledge incident:', err);
-            alert(`Failed to acknowledge incident: ${err}`);
-        } finally {
-            acknowledging = false;
-        }
+    } catch (err) {
+        console.error('Failed to acknowledge incident:', err);
+        alert(`Failed to acknowledge incident: ${err}`);
+    } finally {
+        acknowledging = false;
     }
+}
     
     function handleCardClick() {
         selectedIncident.set(incident);
