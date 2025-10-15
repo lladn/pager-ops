@@ -692,8 +692,14 @@ func (a *App) StartPolling() {
 	go func() {
 		defer a.shutdownWg.Done()
 
-		// Initial fetch immediately
-		a.fetchServiceIncidents()
+		// Initial fetch immediately if filter is NOT enabled
+		a.mu.RLock()
+		shouldFetch := !a.filterByUser
+		a.mu.RUnlock()
+
+		if shouldFetch {
+			a.fetchServiceIncidents()
+		}
 
 		for {
 			select {
@@ -709,6 +715,15 @@ func (a *App) StartPolling() {
 
 				if !shouldContinue || currentTicker == nil {
 					return
+				}
+
+				// Check if user filtering is enabled
+				a.mu.RLock()
+				shouldFetch := !a.filterByUser
+				a.mu.RUnlock()
+
+				if !shouldFetch {
+					continue // Skip if user filtering is enabled
 				}
 
 				// Check rate limit before making call
@@ -733,8 +748,8 @@ func (a *App) StartUserPolling() {
 	}
 
 	a.userPolling = true
-	a.userPollTicker = time.NewTicker(6 * time.Second)
-	a.logger.Info("Started user incidents polling (6s interval)")
+	a.userPollTicker = time.NewTicker(4 * time.Second)
+	a.logger.Info("Started user incidents polling (4s interval)")
 
 	// Store ticker channel reference while holding lock
 	tickerChan := a.userPollTicker.C
@@ -1340,18 +1355,24 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// When in assigned mode, return all incidents without service filtering
-	// The union of (selected services + assigned incidents) is already in the database
+	// Handle: No services selected
+	if len(enabledServices) == 0 {
+		if filterByUser {
+			// Assigned Mode ON + No Services Selected → show assigned incidents
+			return allIncidents, nil
+		}
+		// Assigned Mode OFF + No Services Selected → return empty
+		return []database.IncidentData{}, nil
+	}
+
+	// Handle: Services selected + Assigned Mode ON
+	// Show UNION of (assigned incidents from any service) + (all incidents from selected services)
 	if filterByUser {
 		return allIncidents, nil
 	}
 
-	// If no services selected, return all
-	if len(enabledServices) == 0 {
-		return allIncidents, nil
-	}
-
-	// Filter by enabled services only (when NOT in assigned mode)
+	// Handle: Services selected + Assigned Mode OFF
+	// Filter by enabled services only
 	serviceMap := make(map[string]bool)
 	for _, id := range enabledServices {
 		serviceMap[id] = true
