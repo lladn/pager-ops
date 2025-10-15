@@ -313,7 +313,23 @@ type FetchOptions struct {
 func (c *Client) FetchOpenIncidents(serviceIDs []string, userID string) ([]database.IncidentData, error) {
 	var allIncidents []database.IncidentData
 
-	// Fetch incidents filtered by services
+	// When both serviceIDs and userID are provided, fetch user incidents filtered by services (INTERSECTION)
+	// This ensures that in assigned mode with selected services, only incidents that are BOTH
+	// assigned to the user AND from the selected services are returned
+	if len(serviceIDs) > 0 && userID != "" {
+		opts := FetchOptions{
+			ServiceIDs: serviceIDs,
+			UserID:     userID,
+			Statuses:   []string{"triggered", "acknowledged"},
+		}
+		incidents, err := c.FetchIncidentsWithOptions(opts)
+		if err != nil {
+			return nil, err
+		}
+		return deduplicateIncidents(incidents), nil
+	}
+
+	// Fetch incidents filtered by services (no user filter)
 	if len(serviceIDs) > 0 {
 		serviceIncidents, err := c.fetchIncidentsByServices(
 			serviceIDs, []string{"triggered", "acknowledged"})
@@ -323,7 +339,7 @@ func (c *Client) FetchOpenIncidents(serviceIDs []string, userID string) ([]datab
 		allIncidents = append(allIncidents, serviceIncidents...)
 	}
 
-	// Fetch incidents assigned to current user
+	// Fetch incidents assigned to current user (all services)
 	if userID != "" {
 		userIncidents, err := c.fetchIncidentsByUser(
 			userID, []string{"triggered", "acknowledged"})
