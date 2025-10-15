@@ -19,7 +19,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App struct - NO FIELDS RENAMED, only new fields added
 type App struct {
 	ctx                   context.Context
 	db                    *database.DB
@@ -257,8 +256,23 @@ func (a *App) startup(
 		a.logger.Info("PagerOps starting up...")
 	}
 
-	// Initialize database
-	dbPath := filepath.Join(".", "incidents.db")
+	// Initialize database with proper data directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get home directory: %v", err))
+		runtime.LogError(ctx, fmt.Sprintf("Failed to get home directory: %v", err))
+		return
+	}
+
+	// Create data directory in user's home (similar to logs)
+	dataDir := filepath.Join(homeDir, "Library", "Application Support", "pager-ops")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to create data directory: %v", err))
+		runtime.LogError(ctx, fmt.Sprintf("Failed to create data directory: %v", err))
+		return
+	}
+
+	dbPath := filepath.Join(dataDir, "incidents.db")
 	a.logger.Info(fmt.Sprintf("Initializing database at: %s", dbPath))
 
 	db, err := database.NewDB(dbPath)
@@ -384,8 +398,24 @@ func (a *App) fetchAndUpdateIncidents() {
 	a.mu.RUnlock()
 
 	if shouldFilterByUser {
-		a.fetchUserIncidents()
+		// When filtering by user, fetch BOTH service and user incidents
+		// This ensures we get the union of selected services AND assigned incidents
+		var wg sync.WaitGroup
+		wg.Add(2)
+		
+		go func() {
+			defer wg.Done()
+			a.fetchServiceIncidents()
+		}()
+		
+		go func() {
+			defer wg.Done()
+			a.fetchUserIncidents()
+		}()
+		
+		wg.Wait()
 	} else {
+		// Only fetch service incidents when not filtering by user
 		a.fetchServiceIncidents()
 	}
 }
@@ -404,6 +434,7 @@ func (a *App) processAndUpdateIncidents(
 	// Get selected services for filtering
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
+	filterByUser := a.filterByUser
 	a.mu.RUnlock()
 
 	// Collect incident IDs from current fetch
@@ -434,13 +465,18 @@ func (a *App) processAndUpdateIncidents(
 		currentMap[incident.IncidentID] = true
 	}
 
-	// Find incidents that are in DB but not in current API response
-	for _, existing := range existingOpenIncidents {
-		if !currentMap[existing.IncidentID] {
-			// Only mark as stale if it's from the same service set we're fetching
-			if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
-				staleIDs = append(staleIDs, existing.IncidentID)
-				a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
+	// Only mark incidents as stale when NOT in user filter mode
+	// In user filter mode, we're getting a union of service + user incidents
+	// so we shouldn't mark anything as stale based on a single fetch
+	if !filterByUser && source == "services" {
+		// Find incidents that are in DB but not in current API response
+		for _, existing := range existingOpenIncidents {
+			if !currentMap[existing.IncidentID] {
+				// Only mark as stale if it's from the same service set we're fetching
+				if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
+					staleIDs = append(staleIDs, existing.IncidentID)
+					a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
+				}
 			}
 		}
 	}
@@ -656,8 +692,14 @@ func (a *App) StartPolling() {
 	go func() {
 		defer a.shutdownWg.Done()
 
-		// Initial fetch immediately
-		a.fetchServiceIncidents()
+		// Initial fetch immediately if filter is NOT enabled
+		a.mu.RLock()
+		shouldFetch := !a.filterByUser
+		a.mu.RUnlock()
+
+		if shouldFetch {
+			a.fetchServiceIncidents()
+		}
 
 		for {
 			select {
@@ -673,6 +715,15 @@ func (a *App) StartPolling() {
 
 				if !shouldContinue || currentTicker == nil {
 					return
+				}
+
+				// Check if user filtering is enabled
+				a.mu.RLock()
+				shouldFetch := !a.filterByUser
+				a.mu.RUnlock()
+
+				if !shouldFetch {
+					continue // Skip if user filtering is enabled
 				}
 
 				// Check rate limit before making call
@@ -697,8 +748,8 @@ func (a *App) StartUserPolling() {
 	}
 
 	a.userPolling = true
-	a.userPollTicker = time.NewTicker(6 * time.Second)
-	a.logger.Info("Started user incidents polling (6s interval)")
+	a.userPollTicker = time.NewTicker(4 * time.Second)
+	a.logger.Info("Started user incidents polling (4s interval)")
 
 	// Store ticker channel reference while holding lock
 	tickerChan := a.userPollTicker.C
@@ -1304,18 +1355,24 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// When in assigned mode, return all incidents without service filtering
-	// The union of (selected services + assigned incidents) is already in the database
+	// Handle: No services selected
+	if len(enabledServices) == 0 {
+		if filterByUser {
+			// Assigned Mode ON + No Services Selected → show assigned incidents
+			return allIncidents, nil
+		}
+		// Assigned Mode OFF + No Services Selected → return empty
+		return []database.IncidentData{}, nil
+	}
+
+	// Handle: Services selected + Assigned Mode ON
+	// Show UNION of (assigned incidents from any service) + (all incidents from selected services)
 	if filterByUser {
 		return allIncidents, nil
 	}
 
-	// If no services selected, return all
-	if len(enabledServices) == 0 {
-		return allIncidents, nil
-	}
-
-	// Filter by enabled services only (when NOT in assigned mode)
+	// Handle: Services selected + Assigned Mode OFF
+	// Filter by enabled services only
 	serviceMap := make(map[string]bool)
 	for _, id := range enabledServices {
 		serviceMap[id] = true
@@ -1854,15 +1911,23 @@ func (a *App) cleanupOldSidebarData() {
 	for {
 		select {
 		case <-a.shutdownChan:
-			a.logger.Info("Sidebar cleanup routine stopped by shutdown signal")
+			a.logger.Info("Cleanup routine stopped by shutdown signal")
 			return
 		case <-ticker.C:
-			cutoffDate := time.Now().Add(-30 * 24 * time.Hour) // 30 days ago
-
-			if err := a.db.CleanupOldSidebarData(cutoffDate); err != nil {
+			// Clean up sidebar data older than 30 days
+			sidebarCutoff := time.Now().Add(-30 * 24 * time.Hour)
+			if err := a.db.CleanupOldSidebarData(sidebarCutoff); err != nil {
 				a.logger.Error(fmt.Sprintf("Failed to cleanup old sidebar data: %v", err))
 			} else {
 				a.logger.Info("Successfully cleaned up old sidebar data")
+			}
+
+			// Clean up incidents older than 90 days (3 months)
+			incidentCutoff := time.Now().Add(-90 * 24 * time.Hour)
+			if err := a.db.CleanupOldIncidents(incidentCutoff); err != nil {
+				a.logger.Error(fmt.Sprintf("Failed to cleanup old incidents: %v", err))
+			} else {
+				a.logger.Info("Successfully cleaned up old incidents (older than 90 days)")
 			}
 		}
 	}
@@ -2352,6 +2417,47 @@ func (a *App) AddIncidentNote(incidentID string, noteData NoteInput) error {
 
 	// Emit event to refresh sidebar
 	runtime.EventsEmit(a.ctx, "sidebar-data-updated", incidentID)
+
+	return nil
+}
+
+// ResolveIncident resolves an incident via the PagerDuty API
+func (a *App) ResolveIncident(incidentID string) error {
+	if incidentID == "" {
+		return fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// Get current user's email
+	userEmail, err := a.getUserEmail()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get user email for resolve: %v", err))
+		return fmt.Errorf("failed to get user email: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Resolving incident %s as user %s", incidentID, userEmail))
+
+	// Call API to resolve incident
+	err = a.client.ResolveIncident(incidentID, userEmail)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to resolve incident %s: %v", incidentID, err))
+		return err
+	}
+
+	a.logger.Info(fmt.Sprintf("Successfully resolved incident %s", incidentID))
+
+	// Force immediate refresh of both incident lists
+	go func() {
+		// Small delay to let PagerDuty process the change
+		time.Sleep(1 * time.Second)
+		a.fetchServiceIncidents()
+		a.fetchUserIncidents()
+		time.Sleep(500 * time.Millisecond)
+		a.fetchResolvedIncidentsSince()
+	}()
 
 	return nil
 }

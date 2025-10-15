@@ -31,6 +31,30 @@ func (c *Client) AcknowledgeIncident(incidentID, userEmail string) error {
 	return fmt.Errorf("unexpected response from acknowledge incident")
 }
 
+// ResolveIncident resolves an incident through the queue
+func (c *Client) ResolveIncident(incidentID, userEmail string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	opts := ManageIncidentsRequest{
+		From:       userEmail,
+		IncidentID: incidentID,
+		Status:     "resolved",
+	}
+
+	result, err := c.queueRequest("ManageIncidents", ctx, opts)
+	if err != nil {
+		return fmt.Errorf("failed to resolve incident: %w", err)
+	}
+
+	// Check if the response indicates success
+	if result != nil {
+		return nil
+	}
+
+	return fmt.Errorf("unexpected response from resolve incident")
+}
+
 // CreateIncidentNote creates a note on an incident through the queue
 func (c *Client) CreateIncidentNote(incidentID string, noteContent string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -1114,6 +1114,75 @@ func (db *DB) ClearIncidentSidebarCache(incidentID string) error {
 	return nil
 }
 
+// CleanupOldIncidents deletes incidents and all related data older than the cutoff date
+func (db *DB) CleanupOldIncidents(cutoffDate time.Time) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete alerts for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_alerts
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old alerts: %w", err)
+	}
+
+	// Delete notes for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_notes
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old notes: %w", err)
+	}
+
+	// Delete metadata for old incidents
+	_, err = tx.Exec(`
+		DELETE FROM incident_sidebar_metadata
+		WHERE incident_id IN (
+			SELECT incident_id FROM incidents
+			WHERE updated_at < ?
+		)
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old metadata: %w", err)
+	}
+
+	// Delete the old incidents themselves
+	result, err := tx.Exec(`
+		DELETE FROM incidents
+		WHERE updated_at < ?
+	`, cutoffDate)
+	if err != nil {
+		return fmt.Errorf("failed to delete old incidents: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit cleanup transaction: %w", err)
+	}
+
+	// Log how many incidents were deleted
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		// This will be logged by the caller
+	}
+
+	return nil
+}
+
 // Close - ORIGINAL METHOD UNCHANGED
 func (db *DB) Close() error {
 	return db.conn.Close()

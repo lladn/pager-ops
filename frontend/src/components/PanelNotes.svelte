@@ -112,19 +112,26 @@
     });
     
     async function handleIncidentChange() {
-        // Save current draft before switching
-        if (lastIncidentId) {
-            saveDraftToLocalStorage(lastIncidentId);
-        }
-        
-        // Load new incident's configuration
-        await loadServiceConfig();
-        
-        // Restore draft for new incident
-        if (incident?.incident_id) {
-            restoreDraftFromLocalStorage(incident.incident_id);
-        }
+    // Save current draft before switching
+    if (lastIncidentId) {
+        saveDraftToLocalStorage(lastIncidentId);
     }
+    
+    // Reset all form state before loading new incident
+    questionResponses = {};
+    tagSelections = {};
+    freeformNote = '';
+    draftSaveStatus = '';
+    
+    // Load new incident's configuration
+    await loadServiceConfig();
+    
+    // Restore draft for new incident
+    if (incident?.incident_id) {
+        restoreDraftFromLocalStorage(incident.incident_id);
+    }
+}
+
     
     async function loadServiceConfig() {
     if (!incident?.service_id) return;
@@ -168,24 +175,33 @@
     }
 }
     
-    function restoreDraftFromLocalStorage(incidentId: string) {
-        const draftKey = getDraftKey(incidentId);
-        
-        try {
-            const stored = localStorage.getItem(draftKey);
-            if (stored) {
-                const draftData = JSON.parse(stored);
-                questionResponses = draftData.questionResponses || {};
-                tagSelections = draftData.tagSelections || {};
-                freeformNote = draftData.freeformNote || '';
-                
-                // Show saved status if draft exists
-                draftSaveStatus = 'saved';
-            }
-        } catch (err) {
-            console.error('Failed to restore draft:', err);
+function restoreDraftFromLocalStorage(incidentId: string) {
+    const draftKey = getDraftKey(incidentId);
+    
+    // Clear existing state first
+    questionResponses = {};
+    tagSelections = {};
+    freeformNote = '';
+    
+    try {
+        const stored = localStorage.getItem(draftKey);
+        if (stored) {
+            const draftData = JSON.parse(stored);
+            questionResponses = draftData.questionResponses || {};
+            tagSelections = draftData.tagSelections || {};
+            freeformNote = draftData.freeformNote || '';
+            
+            // Show saved status if draft exists
+            draftSaveStatus = 'saved';
+        } else {
+            // Clear status if no draft exists
+            draftSaveStatus = '';
         }
+    } catch (err) {
+        console.error('Failed to restore draft:', err);
+        draftSaveStatus = '';
     }
+}
     
         function saveDraft() {
         draftSaveStatus = 'saving';

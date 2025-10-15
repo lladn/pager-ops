@@ -42,6 +42,8 @@ export function ReadFile(arg1:string):Promise<string>;
 
 export function RemoveServicesConfig():Promise<void>;
 
+export function ResolveIncident(arg1:string):Promise<void>;
+
 export function SetBrowserRedirect(arg1:boolean):Promise<void>;
 
 export function SetFilterByUser(arg1:boolean):Promise<void>;

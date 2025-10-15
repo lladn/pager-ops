@@ -78,6 +78,10 @@ export function RemoveServicesConfig() {
   return window['go']['main']['App']['RemoveServicesConfig']();
 }
 
+export function ResolveIncident(arg1) {
+  return window['go']['main']['App']['ResolveIncident'](arg1);
+}
+
 export function SetBrowserRedirect(arg1) {
   return window['go']['main']['App']['SetBrowserRedirect'](arg1);
 }
