@@ -4,6 +4,7 @@
     import PanelAlerts from './PanelAlerts.svelte';
     import PanelNotes from './PanelNotes.svelte';
     import { getServiceColor } from '../lib/serviceColors';
+    import { ResolveIncident } from '../../wailsjs/go/main/App';
     
     type IncidentData = database.IncidentData;
     
@@ -14,6 +15,7 @@
     let startX = 0;
     let startWidth = 0;
     let panelTab: 'alerts' | 'notes' = 'alerts';
+    let resolving = false;
     
     $: serviceColor = $selectedIncident ? getServiceColor($selectedIncident.service_summary || 'Unknown Service') : '#6b7280';
     
@@ -31,7 +33,7 @@
         }
     }
     
-        function startResize(event: MouseEvent) {
+    function startResize(event: MouseEvent) {
         event.preventDefault(); 
         isResizing = true;
         startX = event.clientX;
@@ -39,7 +41,7 @@
         
         document.body.style.cursor = 'ew-resize';
         document.body.style.userSelect = 'none';
-        document.body.classList.add('resizing'); // Add class for global no-select
+        document.body.classList.add('resizing');
         
         document.addEventListener('mousemove', handleResize);
         document.addEventListener('mouseup', stopResize);
@@ -54,7 +56,7 @@
         panelWidth.set(newWidth);
     }
     
-        function stopResize() {
+    function stopResize() {
         isResizing = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
@@ -67,6 +69,28 @@
     function closePanel() {
         panelOpen.set(false);
         selectedIncident.set(null);
+    }
+    
+    async function handleResolve(event: MouseEvent) {
+        event.stopPropagation();
+        
+        if (resolving || !$selectedIncident) return;
+        
+        resolving = true;
+        
+        try {
+            await ResolveIncident($selectedIncident.incident_id);
+            console.log(`Incident ${$selectedIncident.incident_id} resolved successfully`);
+            
+            // Close panel after resolving
+            closePanel();
+            
+        } catch (err) {
+            console.error('Failed to resolve incident:', err);
+            alert(`Failed to resolve incident: ${err}`);
+        } finally {
+            resolving = false;
+        }
     }
 </script>
 
@@ -94,7 +118,28 @@
             <div class="incident-info">
                 <div class="incident-title-section">
                     <h4>{$selectedIncident.title}</h4>
-                    <span class="service-name" style="color: {serviceColor}">{$selectedIncident.service_summary}</span>
+                    <div class="service-row">
+                        <span class="service-name" style="color: {serviceColor}">
+                            {$selectedIncident.service_summary}
+                        </span>
+                        
+                        {#if $activeTab === 'open' && $selectedIncident.status !== 'resolved'}
+                            <button 
+                                class="resolve-button" 
+                                class:loading={resolving}
+                                on:click={handleResolve}
+                                disabled={resolving}
+                                title="Resolve incident"
+                            >
+                                {#if resolving}
+                                    <span class="spinner"></span>
+                                    Resolving...
+                                {:else}
+                                    ✓ Resolve
+                                {/if}
+                            </button>
+                        {/if}
+                    </div>
                 </div>
             </div>
             
@@ -161,7 +206,6 @@
         background: transparent;
         z-index: 10;
         transition: background 0.2s;
-        /* Prevent text selection during resize */
         -webkit-user-select: none;
         -moz-user-select: none;
         -ms-user-select: none;
@@ -184,7 +228,6 @@
         border-bottom: 1px solid #e0e0e0;
         background: #fafafa;
         flex-shrink: 0;
-    /* Prevent accidental text highlight */
         -webkit-user-select: none;
         -ms-user-select: none;
         user-select: none;
@@ -232,10 +275,60 @@
         overflow-wrap: break-word;
     }
     
+    .service-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        justify-content: space-between;
+    }
+    
     .service-name {
         font-size: 13px;
         font-weight: 500;
         display: block;
+        flex: 1;
+    }
+    
+    .resolve-button {
+        padding: 4px 10px;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+    }
+    
+    .resolve-button:hover:not(:disabled) {
+        background: #059669;
+    }
+    
+    .resolve-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .resolve-button.loading {
+        background: #6b7280;
+    }
+    
+    .spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid #fff;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
     }
     
     .panel-tabs {
@@ -243,7 +336,6 @@
         border-bottom: 1px solid #e0e0e0;
         background: white;
         flex-shrink: 0;
-    /* Prevent accidental text highlight */
         -webkit-user-select: none;
         -ms-user-select: none;
         user-select: none;
@@ -260,7 +352,6 @@
         color: #6b7280;
         cursor: pointer;
         transition: all 0.2s;
-        /* Prevent accidental text highlight */
         -webkit-user-select: none;
         -ms-user-select: none;
         user-select: none;

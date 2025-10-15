@@ -4,13 +4,15 @@
         selectedServices, 
         loadOpenIncidents, 
         loadResolvedIncidents,
-        assignedFilterEnabled } from '../stores/incidents';
+        assignedFilterEnabled 
+    } from '../stores/incidents';
     import { SetSelectedServices, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
     import { onMount } from 'svelte';
     
     let isOpen = false;
     let filterText = 'All Services';
+    let isUpdating = false;
     
     // Local state for immediate UI updates
     let localSelectedServices: string[] = [];
@@ -103,24 +105,37 @@
     }
     
     async function toggleAssignedMode() {
+        if (isUpdating) return;
+        isUpdating = true;
+        
         const newMode = !$assignedFilterEnabled;
         assignedFilterEnabled.set(newMode);
         
         try {
             await SetFilterByUser(newMode);
             updateFilterText(localSelectedServices, newMode);
-            await loadOpenIncidents();
-            await loadResolvedIncidents();
+            
+            // Wait for backend to process the change
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            await Promise.all([
+                loadOpenIncidents(),
+                loadResolvedIncidents()
+            ]);
         } catch (err) {
             console.error('Failed to toggle assigned mode:', err);
             // Revert on error
             assignedFilterEnabled.set(!newMode);
             updateFilterText(localSelectedServices, !newMode);
+        } finally {
+            isUpdating = false;
         }
     }
     
-    
     async function toggleServiceGroup(service: store.ServiceConfig) {
+        if (isUpdating) return;
+        isUpdating = true;
+        
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [];
         
@@ -139,11 +154,25 @@
         // Update local state immediately
         localSelectedServices = newSelection;
         
-        // Update store and backend
-        selectedServices.set(newSelection);
-        await SetSelectedServices(newSelection);
-        await loadOpenIncidents();
-        await loadResolvedIncidents();
+        try {
+            // Update store and backend
+            selectedServices.set(newSelection);
+            await SetSelectedServices(newSelection);
+            
+            // Wait for backend to process
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            await Promise.all([
+                loadOpenIncidents(),
+                loadResolvedIncidents()
+            ]);
+        } catch (err) {
+            console.error('Failed to update services:', err);
+            // Revert on error
+            localSelectedServices = [...$selectedServices];
+        } finally {
+            isUpdating = false;
+        }
     }
     
     function isServiceGroupSelected(service: store.ServiceConfig, selected: string[]): boolean {

@@ -359,11 +359,15 @@ function loadUserAcknowledgments(): Map<string, {updated_at: string, status: str
 // Initialize acknowledgments from localStorage
 userAcknowledgedIncidents.set(loadUserAcknowledgments());
 
-// Mark incident as acknowledged at current updated_at timestamp and status
+// Mark incident as acknowledged at current updated_at timestamp and status  
 export function markIncidentAcknowledged(incidentId: string, incidentUpdatedAt: string, incidentStatus: string) {
     userAcknowledgedIncidents.update(acks => {
-        // Store the incident's updated_at timestamp and status when user clicked
-        acks.set(incidentId, { updated_at: incidentUpdatedAt, status: incidentStatus });
+        // Store the incident's updated_at timestamp and current status when user clicked
+        // This properly tracks re-triggered incidents
+        acks.set(incidentId, { 
+            updated_at: incidentUpdatedAt, 
+            status: 'acknowledged' // Always store as 'acknowledged' since that's what we're doing
+        });
         
         // Persist to localStorage
         try {
