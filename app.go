@@ -1002,9 +1002,26 @@ func (a *App) fetchUserIncidents() {
 		return
 	}
 
+	// Track which incidents are assigned to this user
+	assignedIDs := make([]string, 0, len(incidents))
+	for _, incident := range incidents {
+		assignedIDs = append(assignedIDs, incident.IncidentID)
+	}
+	
+	// Store assigned incident IDs in database state
+	if len(assignedIDs) > 0 && a.db != nil {
+		assignedIDsStr := strings.Join(assignedIDs, ",")
+		if err := a.db.SetState("assigned_incidents_"+userID, assignedIDsStr); err != nil {
+			a.logger.Warn(fmt.Sprintf("Failed to store assigned incident IDs: %v", err))
+		}
+	}
+
 	a.circuitBreaker.RecordSuccess()
 	a.processAndUpdateIncidents(incidents, "user")
 }
+
+
+
 
 func (a *App) fetchResolvedIncidentsSince() {
 	if a.client == nil || !a.circuitBreaker.Allow() {
@@ -1298,13 +1315,18 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// Filter out disabled services
+	// Create a snapshot of configuration to avoid data races
 	a.mu.RLock()
+	filterByUser := a.filterByUser
+	servicesConfig := a.servicesConfig
+	a.mu.RUnlock()
+
+	// Filter out disabled services
 	enabledServices := []string{}
-	if a.servicesConfig != nil {
+	if servicesConfig != nil {
 		for _, serviceID := range serviceIDs {
 			isDisabled := false
-			for _, service := range a.servicesConfig.Services {
+			for _, service := range servicesConfig.Services {
 				// Check if this service is disabled
 				if service.Disabled {
 					switch id := service.ID.(type) {
@@ -1333,10 +1355,6 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 	} else {
 		enabledServices = serviceIDs
 	}
-	
-	// Check if we're in assigned filter mode
-	filterByUser := a.filterByUser
-	a.mu.RUnlock()
 
 	// Don't fetch if polling is active - just return cached data
 	a.pollMu.RLock()
@@ -1355,24 +1373,74 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// Handle: No services selected
+	// Get user ID for filtering assigned incidents
+	var userID string
+	if filterByUser && a.userCache != nil {
+		cachedID, valid := a.userCache.Get()
+		if valid {
+			userID = cachedID
+		}
+	}
+
+	// Get assigned incident IDs from database
+	assignedIncidentIDs := make(map[string]bool)
+	if userID != "" {
+		if assignedIDsStr, err := a.db.GetState("assigned_incidents_" + userID); err == nil && assignedIDsStr != "" {
+			ids := strings.Split(assignedIDsStr, ",")
+			for _, id := range ids {
+				if id != "" {
+					assignedIncidentIDs[id] = true
+				}
+			}
+		}
+	}
+
+	// Handle filtering based on mode
 	if len(enabledServices) == 0 {
-		if filterByUser {
-			// Assigned Mode ON + No Services Selected → show assigned incidents
-			return allIncidents, nil
+		if filterByUser && userID != "" {
+			// Assigned Mode ON + No Services Selected → show only assigned incidents
+			var assignedIncidents []database.IncidentData
+			for _, incident := range allIncidents {
+				if assignedIncidentIDs[incident.IncidentID] {
+					assignedIncidents = append(assignedIncidents, incident)
+				}
+			}
+			return assignedIncidents, nil
 		}
 		// Assigned Mode OFF + No Services Selected → return empty
 		return []database.IncidentData{}, nil
 	}
 
-	// Handle: Services selected + Assigned Mode ON
-	// Show UNION of (assigned incidents from any service) + (all incidents from selected services)
-	if filterByUser {
-		return allIncidents, nil
+	// Services are selected
+	if filterByUser && userID != "" {
+		// Assigned Mode ON + Services Selected → show UNION of assigned + selected services
+		serviceMap := make(map[string]bool)
+		for _, id := range enabledServices {
+			serviceMap[id] = true
+		}
+
+		var filteredIncidents []database.IncidentData
+		seen := make(map[string]bool)
+		
+		// Add all incidents from selected services
+		for _, incident := range allIncidents {
+			if serviceMap[incident.ServiceID] {
+				filteredIncidents = append(filteredIncidents, incident)
+				seen[incident.IncidentID] = true
+			}
+		}
+		
+		// Add assigned incidents that aren't already included
+		for _, incident := range allIncidents {
+			if assignedIncidentIDs[incident.IncidentID] && !seen[incident.IncidentID] {
+				filteredIncidents = append(filteredIncidents, incident)
+			}
+		}
+		
+		return filteredIncidents, nil
 	}
 
-	// Handle: Services selected + Assigned Mode OFF
-	// Filter by enabled services only
+	// Assigned Mode OFF + Services Selected → show only selected services
 	serviceMap := make(map[string]bool)
 	for _, id := range enabledServices {
 		serviceMap[id] = true
