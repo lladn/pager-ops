@@ -4,7 +4,8 @@
         selectedServices, 
         loadOpenIncidents, 
         loadResolvedIncidents,
-        assignedFilterEnabled 
+        assignedFilterEnabled,
+        serviceFilterLoading 
     } from '../stores/incidents';
     import { SetSelectedServices, GetFilterByUser, SetFilterByUser } from '../../wailsjs/go/main/App';
     import { store } from '../../wailsjs/go/models';
@@ -107,6 +108,7 @@
     async function toggleAssignedMode() {
         if (isUpdating) return;
         isUpdating = true;
+        serviceFilterLoading.set(true);
         
         const newMode = !$assignedFilterEnabled;
         assignedFilterEnabled.set(newMode);
@@ -129,12 +131,14 @@
             updateFilterText(localSelectedServices, !newMode);
         } finally {
             isUpdating = false;
+            serviceFilterLoading.set(false);
         }
     }
     
     async function toggleServiceGroup(service: store.ServiceConfig) {
         if (isUpdating) return;
         isUpdating = true;
+        serviceFilterLoading.set(true);
         
         const serviceIds = typeof service.id === 'string' ? [service.id] : 
                           Array.isArray(service.id) ? service.id : [];
@@ -172,6 +176,7 @@
             localSelectedServices = [...$selectedServices];
         } finally {
             isUpdating = false;
+            serviceFilterLoading.set(false);
         }
     }
     

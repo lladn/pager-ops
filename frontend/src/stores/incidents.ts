@@ -25,6 +25,9 @@ export const panelWidth = writable(320);
 export const loading = writable(false);
 export const error = writable<string | null>(null);
 
+// Add dedicated loading state for service filter changes
+export const serviceFilterLoading = writable(false);
+
 // Shared store for assigned filter state (synced across ServiceFilter and SettingsGeneral)
 export const assignedFilterEnabled = writable<boolean>(false);
 
