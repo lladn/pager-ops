@@ -55,6 +55,8 @@ type App struct {
 	resolvedFetchMu       sync.Mutex
 	sidebarFetchingMu     sync.Mutex
 	fetchingIncidents     map[string]bool
+	incidentPersistence    map[string]int 
+	incidentPersistenceMu sync.RWMutex
 }
 
 // RateLimitTracker
@@ -319,6 +321,9 @@ func (a *App) startup(
 	a.notificationMgr = NewNotificationManager(a.logger)
 	a.logger.Info("Notification manager initialized")
 
+	// Initialize incident persistence tracking
+	a.incidentPersistence = make(map[string]int)
+
 	// Load browser redirect setting from database
 	if a.db != nil {
 		if value, err := a.db.GetState("browser_redirect"); err == nil {
@@ -431,6 +436,64 @@ func (a *App) processAndUpdateIncidents(
 	default:
 	}
 
+	// Get all currently open incidents from database before update
+	existingOpenIncidents, err := a.db.GetOpenIncidents()
+	if err != nil {
+		if err.Error() == "sql: database is closed" {
+			return
+		}
+		a.logger.Error(fmt.Sprintf("Failed to get existing open incidents: %v", err))
+		return
+	}
+
+	// Track incident persistence for user source (3-fetch grace period)
+	if source == "user" {
+		a.incidentPersistenceMu.Lock()
+		
+		// Create map of current incident IDs
+		currentIDs := make(map[string]bool)
+		for _, incident := range incidents {
+			currentIDs[incident.IncidentID] = true
+		}
+		
+		// Update persistence counts
+		newPersistence := make(map[string]int)
+		for id, count := range a.incidentPersistence {
+			if currentIDs[id] {
+				// Incident is present, reset count
+				newPersistence[id] = 0
+			} else {
+				// Incident is missing, increment count
+				newCount := count + 1
+				if newCount < 3 {
+					// Still within grace period, keep tracking
+					newPersistence[id] = newCount
+					// Add to incidents to preserve it
+					for _, existing := range existingOpenIncidents {
+						if existing.IncidentID == id {
+							incidents = append(incidents, existing)
+							a.logger.Debug(fmt.Sprintf("Preserving incident %s (grace period: %d/3)", id, newCount))
+							break
+						}
+					}
+				} else {
+					// Grace period expired, remove from tracking
+					a.logger.Info(fmt.Sprintf("Incident %s removed after 3-fetch grace period", id))
+				}
+			}
+		}
+		
+		// Add new incidents to tracking
+		for id := range currentIDs {
+			if _, exists := newPersistence[id]; !exists {
+				newPersistence[id] = 0
+			}
+		}
+		
+		a.incidentPersistence = newPersistence
+		a.incidentPersistenceMu.Unlock()
+	}
+
 	// Get selected services for filtering
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
@@ -441,16 +504,6 @@ func (a *App) processAndUpdateIncidents(
 	currentIncidentIDs := make([]string, len(incidents))
 	for i, incident := range incidents {
 		currentIncidentIDs[i] = incident.IncidentID
-	}
-
-	// Get all currently open incidents from database before update
-	existingOpenIncidents, err := a.db.GetOpenIncidents()
-	if err != nil {
-		if err.Error() == "sql: database is closed" {
-			return
-		}
-		a.logger.Error(fmt.Sprintf("Failed to get existing open incidents: %v", err))
-		return
 	}
 
 	// Identify stale incidents (in DB but not in API response)
@@ -986,14 +1039,10 @@ func (a *App) fetchUserIncidents() {
 		return
 	}
 
-	// Get selected services for context
-	a.mu.RLock()
-	selectedServices := append([]string{}, a.selectedServices...)
-	a.mu.RUnlock()
-
-	// Fetch incidents assigned to user (API already filters by services if provided)
+	// Pass empty slice to get ALL incidents assigned to user
+	// Don't filter by selected services - we want the UNION, not INTERSECTION
 	incidents, err := a.fetchWithRetry(func() ([]database.IncidentData, error) {
-		return a.client.FetchOpenIncidents(selectedServices, userID)
+		return a.client.FetchOpenIncidents([]string{}, userID)
 	}, 3)
 
 	if err != nil {
@@ -1013,6 +1062,11 @@ func (a *App) fetchUserIncidents() {
 		assignedIDsStr := strings.Join(assignedIDs, ",")
 		if err := a.db.SetState("assigned_incidents_"+userID, assignedIDsStr); err != nil {
 			a.logger.Warn(fmt.Sprintf("Failed to store assigned incident IDs: %v", err))
+		}
+	} else if a.db != nil {
+		// Clear assigned incidents if none found
+		if err := a.db.SetState("assigned_incidents_"+userID, ""); err != nil {
+			a.logger.Warn(fmt.Sprintf("Failed to clear assigned incident IDs: %v", err))
 		}
 	}
 
@@ -2314,6 +2368,11 @@ func (a *App) shutdown(ctx context.Context) {
 	a.StopPolling()
 	a.StopUserPolling()
 	a.StopResolvedPolling()
+
+	// Clear incident persistence tracking
+	a.incidentPersistenceMu.Lock()
+	a.incidentPersistence = nil
+	a.incidentPersistenceMu.Unlock()
 
 	// Then signal shutdown to running goroutines
 	close(a.shutdownChan)
