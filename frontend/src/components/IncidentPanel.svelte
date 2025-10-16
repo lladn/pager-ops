@@ -3,7 +3,8 @@
         openIncidents, 
         resolvedIncidents, 
         activeTab, 
-        loading } from '../stores/incidents';
+        loading,
+        serviceFilterLoading } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
     import type { database } from '../../wailsjs/go/models';
     
@@ -61,6 +62,15 @@
 
 {#if isActive}
     <div class="incident-panel">
+        {#if $serviceFilterLoading}
+            <div class="service-filter-loading">
+                <div class="loading-overlay">
+                    <div class="spinner"></div>
+                    <p>Updating incidents...</p>
+                </div>
+            </div>
+        {/if}
+        
         {#if $loading}
             <div class="loading-state">
                 <div class="spinner"></div>
@@ -102,7 +112,7 @@
                     </div>
                 {/if}
                 {#each sortedIncidents as incident (incident.incident_id)}
-                    <IncidentCard {incident}/>
+                    <IncidentCard {incident} />
                 {/each}
             </div>
         {/if}
@@ -111,9 +121,40 @@
 
 <style>
     .incident-panel {
+        position: relative;
+        width: 100%;
         height: 100%;
-        overflow-y: auto;
-        padding: 16px;
+        overflow: hidden;
+    }
+    
+    .service-filter-loading {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 100;
+        pointer-events: all;
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.95);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+    }
+    
+    .loading-overlay p {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 0;
     }
     
     .loading-state {
@@ -121,18 +162,23 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 400px;
+        height: 100%;
+        gap: 12px;
+    }
+    
+    .loading-state p {
         color: #6b7280;
+        font-size: 14px;
+        margin: 0;
     }
     
     .spinner {
-        width: 48px;
-        height: 48px;
+        width: 32px;
+        height: 32px;
         border: 3px solid #e5e7eb;
         border-top-color: #3b82f6;
         border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-bottom: 16px;
+        animation: spin 0.8s linear infinite;
     }
     
     @keyframes spin {
@@ -144,34 +190,29 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        height: 400px;
+        height: 100%;
         color: #9ca3af;
-        /* Prevent accidental text highlight */
-        -webkit-user-select: none;
-        -ms-user-select: none;
-        user-select: none;
-    }
-    
-    .empty-state svg {
-        margin-bottom: 16px;
+        gap: 16px;
+        padding: 32px;
     }
     
     .empty-state h3 {
+        margin: 0;
+        color: #6b7280;
         font-size: 18px;
         font-weight: 600;
-        color: #6b7280;
-        margin: 0 0 8px 0;
     }
     
     .empty-state p {
-        color: #9ca3af;
         margin: 0;
-        max-width: 300px;
+        color: #9ca3af;
+        font-size: 14px;
     }
     
     .incidents-list {
-        display: flex;
-        flex-direction: column;
+        height: 100%;
+        overflow-y: auto;
+        padding: 16px;
     }
     
     .search-results-header {
