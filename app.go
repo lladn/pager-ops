@@ -745,14 +745,8 @@ func (a *App) StartPolling() {
 	go func() {
 		defer a.shutdownWg.Done()
 
-		// Initial fetch immediately if filter is NOT enabled
-		a.mu.RLock()
-		shouldFetch := !a.filterByUser
-		a.mu.RUnlock()
-
-		if shouldFetch {
-			a.fetchServiceIncidents()
-		}
+		// Initial fetch immediately - always fetch service incidents regardless of filter mode
+		a.fetchServiceIncidents()
 
 		for {
 			select {
@@ -770,14 +764,8 @@ func (a *App) StartPolling() {
 					return
 				}
 
-				// Check if user filtering is enabled
-				a.mu.RLock()
-				shouldFetch := !a.filterByUser
-				a.mu.RUnlock()
-
-				if !shouldFetch {
-					continue // Skip if user filtering is enabled
-				}
+				// Always fetch service incidents - needed for UNION with assigned incidents
+				// The filtering logic in GetOpenIncidents() handles combining service + assigned incidents
 
 				// Check rate limit before making call
 				if !a.rateLimitTracker.CanMakeCall() {
