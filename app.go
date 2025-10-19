@@ -468,7 +468,23 @@ func (a *App) processAndUpdateIncidents(
 				if newCount < 3 {
 					// Still within grace period, keep tracking
 					newPersistence[id] = newCount
-					// Add to incidents to preserve it
+					
+					// ✅ FIX: Validate incident status before preserving
+					// Query database to check if incident was resolved by another source
+					currentIncident, err := a.db.GetIncidentByID(id)
+					if err != nil {
+						// Incident not found in database, skip preservation
+						a.logger.Debug(fmt.Sprintf("Incident %s not found in database, skipping preservation", id))
+						continue
+					}
+					
+					// Only preserve if status is still open (not resolved)
+					if currentIncident.Status == "resolved" {
+						a.logger.Info(fmt.Sprintf("Incident %s was resolved by another source, skipping preservation (grace period: %d/3)", id, newCount))
+						continue
+					}
+					
+					// Add to incidents to preserve it (only if still open)
 					for _, existing := range existingOpenIncidents {
 						if existing.IncidentID == id {
 							incidents = append(incidents, existing)
