@@ -71,7 +71,7 @@
         selectedIncident.set(null);
     }
     
-    async function handleResolve(event: MouseEvent) {
+        async function handleResolve(event: MouseEvent) {
         event.stopPropagation();
         
         if (resolving || !$selectedIncident) return;
@@ -82,8 +82,7 @@
             await ResolveIncident($selectedIncident.incident_id);
             console.log(`Incident ${$selectedIncident.incident_id} resolved successfully`);
             
-            // Close panel after resolving
-            closePanel();
+            // Panel will remain open after resolving
             
         } catch (err) {
             console.error('Failed to resolve incident:', err);
