@@ -71,7 +71,7 @@
         selectedIncident.set(null);
     }
     
-        async function handleResolve(event: MouseEvent) {
+    async function handleResolve(event: MouseEvent) {
         event.stopPropagation();
         
         if (resolving || !$selectedIncident) return;
@@ -82,7 +82,9 @@
             await ResolveIncident($selectedIncident.incident_id);
             console.log(`Incident ${$selectedIncident.incident_id} resolved successfully`);
             
-            // Panel will remain open after resolving
+            // Switch to resolved tab to show the resolved incident
+            // Keep the panel open and incident selected
+            activeTab.set('resolved');
             
         } catch (err) {
             console.error('Failed to resolve incident:', err);
