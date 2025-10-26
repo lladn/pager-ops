@@ -55,8 +55,6 @@ type App struct {
 	resolvedFetchMu       sync.Mutex
 	sidebarFetchingMu     sync.Mutex
 	fetchingIncidents     map[string]bool
-	incidentPersistence    map[string]int 
-	incidentPersistenceMu sync.RWMutex
 }
 
 // RateLimitTracker
@@ -322,7 +320,6 @@ func (a *App) startup(
 	a.logger.Info("Notification manager initialized")
 
 	// Initialize incident persistence tracking
-	a.incidentPersistence = make(map[string]int)
 
 	// Load browser redirect setting from database
 	if a.db != nil {
@@ -407,17 +404,17 @@ func (a *App) fetchAndUpdateIncidents() {
 		// This ensures we get the union of selected services AND assigned incidents
 		var wg sync.WaitGroup
 		wg.Add(2)
-		
+
 		go func() {
 			defer wg.Done()
 			a.fetchServiceIncidents()
 		}()
-		
+
 		go func() {
 			defer wg.Done()
 			a.fetchUserIncidents()
 		}()
-		
+
 		wg.Wait()
 	} else {
 		// Only fetch service incidents when not filtering by user
@@ -446,69 +443,7 @@ func (a *App) processAndUpdateIncidents(
 		return
 	}
 
-	// Track incident persistence for user source (3-fetch grace period)
-	if source == "user" {
-		a.incidentPersistenceMu.Lock()
-		
-		// Create map of current incident IDs
-		currentIDs := make(map[string]bool)
-		for _, incident := range incidents {
-			currentIDs[incident.IncidentID] = true
-		}
-		
-		// Update persistence counts
-		newPersistence := make(map[string]int)
-		for id, count := range a.incidentPersistence {
-			if currentIDs[id] {
-				// Incident is present, reset count
-				newPersistence[id] = 0
-			} else {
-				// Incident is missing, increment count
-				newCount := count + 1
-				if newCount < 3 {
-					// Still within grace period, keep tracking
-					newPersistence[id] = newCount
-					
-					// ✅ FIX: Validate incident status before preserving
-					// Query database to check if incident was resolved by another source
-					currentIncident, err := a.db.GetIncidentByID(id)
-					if err != nil {
-						// Incident not found in database, skip preservation
-						a.logger.Debug(fmt.Sprintf("Incident %s not found in database, skipping preservation", id))
-						continue
-					}
-					
-					// Only preserve if status is still open (not resolved)
-					if currentIncident.Status == "resolved" {
-						a.logger.Info(fmt.Sprintf("Incident %s was resolved by another source, skipping preservation (grace period: %d/3)", id, newCount))
-						continue
-					}
-					
-					// Add to incidents to preserve it (only if still open)
-					for _, existing := range existingOpenIncidents {
-						if existing.IncidentID == id {
-							incidents = append(incidents, existing)
-							a.logger.Debug(fmt.Sprintf("Preserving incident %s (grace period: %d/3)", id, newCount))
-							break
-						}
-					}
-				} else {
-					// Grace period expired, remove from tracking
-					a.logger.Info(fmt.Sprintf("Incident %s removed after 3-fetch grace period", id))
-				}
-			}
-		}
-		
-		// Add new incidents to tracking
-		for id := range currentIDs {
-			if _, exists := newPersistence[id]; !exists {
-				newPersistence[id] = 0
-			}
-		}
-		
-		a.incidentPersistence = newPersistence
-		a.incidentPersistenceMu.Unlock()
-	}
+	// REMOVED: All grace period logic completely
 
 	// Get selected services for filtering
 	a.mu.RLock()
@@ -534,9 +469,9 @@ func (a *App) processAndUpdateIncidents(
 		currentMap[incident.IncidentID] = true
 	}
 
-	// Only mark incidents as stale when NOT in user filter mode
-	// In user filter mode, we're getting a union of service + user incidents
-	// so we shouldn't mark anything as stale based on a single fetch
+	// Stale detection logic:
+	// When filterByUser is FALSE: only service fetch does stale detection
+	// When filterByUser is TRUE: service fetch is handled here, user fetch is handled in fetchUserIncidents
 	if !filterByUser && source == "services" {
 		// Find incidents that are in DB but not in current API response
 		for _, existing := range existingOpenIncidents {
@@ -1043,6 +978,19 @@ func (a *App) fetchUserIncidents() {
 		return
 	}
 
+	// Get previously assigned incidents BEFORE fetching new ones
+	var previouslyAssignedIDs map[string]bool
+	if a.db != nil {
+		if previousIDsStr, err := a.db.GetState("assigned_incidents_" + userID); err == nil && previousIDsStr != "" {
+			previouslyAssignedIDs = make(map[string]bool)
+			for _, id := range strings.Split(previousIDsStr, ",") {
+				if id != "" {
+					previouslyAssignedIDs[id] = true
+				}
+			}
+		}
+	}
+
 	// Pass empty slice to get ALL incidents assigned to user
 	// Don't filter by selected services - we want the UNION, not INTERSECTION
 	incidents, err := a.fetchWithRetry(func() ([]database.IncidentData, error) {
@@ -1055,12 +1003,44 @@ func (a *App) fetchUserIncidents() {
 		return
 	}
 
-	// Track which incidents are assigned to this user
+	// Track which incidents are currently assigned to this user
 	assignedIDs := make([]string, 0, len(incidents))
+	currentAssignedMap := make(map[string]bool)
 	for _, incident := range incidents {
 		assignedIDs = append(assignedIDs, incident.IncidentID)
+		currentAssignedMap[incident.IncidentID] = true
 	}
-	
+
+	// Find incidents that were assigned but are no longer (they were resolved or reassigned)
+	var unassignedIDs []string
+	if previouslyAssignedIDs != nil {
+		for prevID := range previouslyAssignedIDs {
+			if !currentAssignedMap[prevID] {
+				unassignedIDs = append(unassignedIDs, prevID)
+				a.logger.Info(fmt.Sprintf("Incident %s no longer assigned to user (possibly resolved)", prevID))
+			}
+		}
+	}
+
+	// Mark unassigned incidents as resolved in DB
+	if len(unassignedIDs) > 0 && a.db != nil {
+		for _, incidentID := range unassignedIDs {
+			// Check if incident exists and is still open
+			if incident, err := a.db.GetIncidentByID(incidentID); err == nil {
+				if incident.Status == "triggered" || incident.Status == "acknowledged" {
+					// Mark as resolved since it's no longer assigned
+					incident.Status = "resolved"
+					incident.UpdatedAt = time.Now()
+					if err := a.db.UpsertIncident(incident); err != nil {
+						a.logger.Error(fmt.Sprintf("Failed to mark unassigned incident as resolved: %v", err))
+					} else {
+						a.logger.Info(fmt.Sprintf("Marked unassigned incident %s as resolved", incidentID))
+					}
+				}
+			}
+		}
+	}
+
 	// Store assigned incident IDs in database state
 	if len(assignedIDs) > 0 && a.db != nil {
 		assignedIDsStr := strings.Join(assignedIDs, ",")
@@ -1077,9 +1057,6 @@ func (a *App) fetchUserIncidents() {
 	a.circuitBreaker.RecordSuccess()
 	a.processAndUpdateIncidents(incidents, "user")
 }
-
-
-
 
 func (a *App) fetchResolvedIncidentsSince() {
 	if a.client == nil || !a.circuitBreaker.Allow() {
@@ -1479,7 +1456,7 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 
 		var filteredIncidents []database.IncidentData
 		seen := make(map[string]bool)
-		
+
 		// Add all incidents from selected services
 		for _, incident := range allIncidents {
 			if serviceMap[incident.ServiceID] {
@@ -1487,14 +1464,14 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 				seen[incident.IncidentID] = true
 			}
 		}
-		
+
 		// Add assigned incidents that aren't already included
 		for _, incident := range allIncidents {
 			if assignedIncidentIDs[incident.IncidentID] && !seen[incident.IncidentID] {
 				filteredIncidents = append(filteredIncidents, incident)
 			}
 		}
-		
+
 		return filteredIncidents, nil
 	}
 
@@ -2373,11 +2350,6 @@ func (a *App) shutdown(ctx context.Context) {
 	a.StopUserPolling()
 	a.StopResolvedPolling()
 
-	// Clear incident persistence tracking
-	a.incidentPersistenceMu.Lock()
-	a.incidentPersistence = nil
-	a.incidentPersistenceMu.Unlock()
-
 	// Then signal shutdown to running goroutines
 	close(a.shutdownChan)
 
@@ -2433,8 +2405,8 @@ func slicesEqual(a, b []string) bool {
 
 // NoteInput represents the structured note data from the frontend
 type NoteInput struct {
-	Responses      []store.NoteResponse `json:"responses"`
-	Tags           []store.NoteTag      `json:"tags"`
+	Responses       []store.NoteResponse `json:"responses"`
+	Tags            []store.NoteTag      `json:"tags"`
 	FreeformContent string               `json:"freeform_content"`
 }
 
@@ -2592,7 +2564,6 @@ func (a *App) ResolveIncident(incidentID string) error {
 
 	return nil
 }
-
 
 // ZoomIn increases the zoom level
 func (a *App) ZoomIn() {
