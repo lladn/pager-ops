@@ -31,6 +31,37 @@ export const serviceFilterLoading = writable(false);
 // Shared store for assigned filter state (synced across ServiceFilter and SettingsGeneral)
 export const assignedFilterEnabled = writable<boolean>(false);
 
+// Stale incident highlight threshold (minutes). Display preference persisted in localStorage.
+const STALE_THRESHOLD_KEY = 'stale_threshold_minutes';
+const DEFAULT_STALE_THRESHOLD = 30;
+export const STALE_THRESHOLD_OPTIONS = [30, 45, 60];
+
+function loadStaleThreshold(): number {
+    try {
+        const stored = localStorage.getItem(STALE_THRESHOLD_KEY);
+        if (stored) {
+            const minutes = parseInt(stored, 10);
+            if (!isNaN(minutes) && minutes > 0) {
+                return minutes;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load stale threshold:', err);
+    }
+    return DEFAULT_STALE_THRESHOLD;
+}
+
+export const staleThresholdMinutes = writable<number>(loadStaleThreshold());
+
+// Persist changes so the preference survives restarts.
+staleThresholdMinutes.subscribe(value => {
+    try {
+        localStorage.setItem(STALE_THRESHOLD_KEY, String(value));
+    } catch (err) {
+        console.error('Failed to persist stale threshold:', err);
+    }
+});
+
 // Store for selected incident (for panel display)
 export const sidebarOpen = writable(false);
 export const selectedIncident = writable<IncidentData | null>(null);

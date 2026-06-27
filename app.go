@@ -1876,6 +1876,7 @@ func convertDBToStoreAlerts(dbAlerts []database.SidebarAlert) []store.IncidentAl
 			Status:      dbAlert.Status,
 			CreatedAt:   dbAlert.CreatedAt,
 			ServiceName: dbAlert.ServiceName,
+			Description: dbAlert.Description,
 			Links:       []store.AlertLink{},
 		}
 
@@ -1902,6 +1903,7 @@ func convertStoreToDBalerts(storeAlerts []store.IncidentAlert) []database.Sideba
 			Status:      storeAlert.Status,
 			CreatedAt:   storeAlert.CreatedAt,
 			ServiceName: storeAlert.ServiceName,
+			Description: storeAlert.Description,
 			Links:       string(linksJSON),
 		}
 	}
@@ -2562,6 +2564,77 @@ func (a *App) ResolveIncident(incidentID string) error {
 		a.fetchResolvedIncidentsSince()
 	}()
 
+	return nil
+}
+
+// GetIncidentCustomFields returns the incident custom field definitions merged
+// with the values currently set on the given incident.
+func (a *App) GetIncidentCustomFields(incidentID string) ([]store.CustomField, error) {
+	if incidentID == "" {
+		return nil, fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return nil, fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	fields, err := a.client.GetIncidentCustomFields(incidentID)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get custom fields for %s: %v", incidentID, err))
+		return nil, err
+	}
+
+	return fields, nil
+}
+
+// GetIncidentCustomFieldValues returns the values currently set on an incident's
+// custom fields (GET /incidents/{id}/custom_fields/values).
+func (a *App) GetIncidentCustomFieldValues(incidentID string) ([]store.CustomFieldValue, error) {
+	if incidentID == "" {
+		return nil, fmt.Errorf("incident ID is required")
+	}
+
+	if a.client == nil {
+		return nil, fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	values, err := a.client.GetIncidentCustomFieldValues(incidentID)
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get custom field values for %s: %v", incidentID, err))
+		return nil, err
+	}
+
+	return values, nil
+}
+
+// SetIncidentCustomFieldValue sets a custom field value on an incident.
+func (a *App) SetIncidentCustomFieldValue(incidentID, fieldID string, value interface{}) error {
+	if incidentID == "" {
+		return fmt.Errorf("incident ID is required")
+	}
+	if fieldID == "" {
+		return fmt.Errorf("field ID is required")
+	}
+
+	if a.client == nil {
+		return fmt.Errorf("PagerDuty client not initialized")
+	}
+
+	// PagerDuty requires the acting user's email as the "From" header for incident writes.
+	userEmail, err := a.getUserEmail()
+	if err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to get user email for custom field set: %v", err))
+		return fmt.Errorf("failed to get user email: %w", err)
+	}
+
+	a.logger.Info(fmt.Sprintf("Setting custom field %s on incident %s", fieldID, incidentID))
+
+	if err := a.client.SetIncidentCustomFieldValue(incidentID, fieldID, value, userEmail); err != nil {
+		a.logger.Error(fmt.Sprintf("Failed to set custom field %s on incident %s: %v", fieldID, incidentID, err))
+		return err
+	}
+
+	a.logger.Info(fmt.Sprintf("Successfully set custom field %s on incident %s", fieldID, incidentID))
 	return nil
 }
 

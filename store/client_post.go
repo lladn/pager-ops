@@ -91,57 +91,44 @@ type CreateIncidentNoteRequest struct {
 	Content    string
 }
 
-// FormatNoteContent converts structured note data into a single formatted string
-// Empty fields are excluded from the output
+// FormatNoteContent converts structured note data into a single formatted string.
+// The layout is always deterministic, whether or not tags are present:
+//   1. first answered question
+//   2. tag groups with selections (in config order)
+//   3. remaining answered questions (in config order)
+//   4. freeform content
+// Empty fields are excluded.
 func FormatNoteContent(responses []NoteResponse, tags []NoteTag, freeformContent string) string {
 	var parts []string
 
-	// Check if there are any tags with values
-	hasTags := false
+	appendResponse := func(r NoteResponse) {
+		if strings.TrimSpace(r.Answer) != "" {
+			parts = append(parts, r.Question)
+			parts = append(parts, r.Answer)
+			parts = append(parts, "") // Blank line after each Q&A
+		}
+	}
+
+	// 1. First question
+	if len(responses) > 0 {
+		appendResponse(responses[0])
+	}
+
+	// 2. Tag groups, in order
 	for _, tag := range tags {
 		if len(tag.SelectedValues) > 0 {
-			hasTags = true
-			break
+			parts = append(parts, fmt.Sprintf("%s:", tag.TagName))
+			parts = append(parts, tag.SelectedValues...)
+			parts = append(parts, "") // Blank line after each tag group
 		}
 	}
 
-	if hasTags {
-		// If tags exist, put first question before tags
-		if len(responses) > 0 && strings.TrimSpace(responses[0].Answer) != "" {
-			parts = append(parts, responses[0].Question)
-			parts = append(parts, responses[0].Answer)
-			parts = append(parts, "") // Blank line after first Q&A
-		}
-
-		// Add tags
-		for _, tag := range tags {
-			if len(tag.SelectedValues) > 0 {
-				parts = append(parts, fmt.Sprintf("%s:", tag.TagName))
-				parts = append(parts, tag.SelectedValues...)
-				parts = append(parts, "") // Empty line after tag group
-			}
-		}
-
-		// Add remaining question responses (from index 1 onwards)
-		for i := 1; i < len(responses); i++ {
-			if strings.TrimSpace(responses[i].Answer) != "" {
-				parts = append(parts, responses[i].Question)
-				parts = append(parts, responses[i].Answer)
-				parts = append(parts, "") // Blank line after each Q&A
-			}
-		}
-	} else {
-		// No tags, just add all responses in order
-		for _, response := range responses {
-			if strings.TrimSpace(response.Answer) != "" {
-				parts = append(parts, response.Question)
-				parts = append(parts, response.Answer)
-				parts = append(parts, "") // Blank line after each Q&A
-			}
-		}
+	// 3. Remaining questions, in order
+	for i := 1; i < len(responses); i++ {
+		appendResponse(responses[i])
 	}
 
-	// Add freeform content at the end
+	// 4. Freeform content at the end
 	if strings.TrimSpace(freeformContent) != "" {
 		parts = append(parts, strings.TrimSpace(freeformContent))
 	}
