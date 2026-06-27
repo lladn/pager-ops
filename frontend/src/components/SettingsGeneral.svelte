@@ -4,7 +4,7 @@
         availableSounds, 
         loadNotificationConfig, 
         loadAvailableSounds } from '../stores/notifications';
-    import { assignedFilterEnabled } from '../stores/incidents';
+    import { assignedFilterEnabled, staleThresholdMinutes, STALE_THRESHOLD_OPTIONS } from '../stores/incidents';
     import { 
         ConfigureAPIKey, GetAPIKey, 
         GetFilterByUser, SetFilterByUser, 
@@ -128,6 +128,17 @@
     function toggleSoundDropdown() {
         showSoundDropdown = !showSoundDropdown;
     }
+
+    function staleOptionLabel(minutes: number): string {
+        return minutes >= 60 ? `${minutes / 60} hour${minutes >= 120 ? 's' : ''}` : `${minutes} minutes`;
+    }
+
+    function setStaleThreshold(event: Event) {
+        const value = parseInt((event.currentTarget as HTMLSelectElement).value, 10);
+        if (!isNaN(value)) {
+            staleThresholdMinutes.set(value);
+        }
+    }
     
     function handleOutsideClick(event: MouseEvent) {
         const target = event.target as HTMLElement;
@@ -170,7 +181,7 @@
                 <h3>Show Assigned Incidents Only</h3>
                 <p class="setting-description">Display only incidents assigned to you</p>
             </div>
-            <button 
+            <button
             class="toggle-button"
             class:active={$assignedFilterEnabled}
             on:click={toggleFilterByUser}
@@ -178,6 +189,17 @@
                 <span class="toggle-slider"></span>
             </button>
         </div>
+    </div>
+
+    <!-- Stale Incident Highlight -->
+    <div class="settings-section">
+        <h3>Stale Incident Highlight</h3>
+        <p class="setting-description">Highlight an unresolved incident card in red once it has been open this long</p>
+        <select class="settings-select" value={$staleThresholdMinutes} on:change={setStaleThreshold}>
+            {#each STALE_THRESHOLD_OPTIONS as minutes}
+                <option value={minutes}>{staleOptionLabel(minutes)}</option>
+            {/each}
+        </select>
     </div>
     
     <!-- Notifications Section -->
@@ -320,6 +342,21 @@
         border: 1px solid #d1d5db;
         border-radius: 6px;
         font-size: 14px;
+    }
+
+    .settings-select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        color: #374151;
+        background: white;
+        cursor: pointer;
+    }
+
+    .settings-select:hover {
+        border-color: #9ca3af;
     }
     
     .toggle-setting {

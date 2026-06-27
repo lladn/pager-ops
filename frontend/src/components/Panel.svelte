@@ -1,22 +1,64 @@
 <script lang="ts">
     import { panelOpen, panelWidth, activeTab, openIncidents, resolvedIncidents, selectedIncident } from '../stores/incidents';
-    import type { database } from '../../wailsjs/go/models';
+    import type { database, store } from '../../wailsjs/go/models';
     import PanelAlerts from './PanelAlerts.svelte';
     import PanelNotes from './PanelNotes.svelte';
+    import PanelCustomField from './PanelCustomField.svelte';
     import { getServiceColor } from '../lib/serviceColors';
-    import { ResolveIncident } from '../../wailsjs/go/main/App';
-    
+    import { ResolveIncident, GetIncidentCustomFields } from '../../wailsjs/go/main/App';
+
     type IncidentData = database.IncidentData;
-    
+    type CustomField = store.CustomField;
+
     const MIN_WIDTH = 280;
     const MAX_WIDTH = 600;
-    
+
     let isResizing = false;
     let startX = 0;
     let startWidth = 0;
-    let panelTab: 'alerts' | 'notes' = 'alerts';
+    // Tab can be 'alerts', 'notes', or a custom field id.
+    let panelTab: string = 'alerts';
     let resolving = false;
-    
+
+    // Custom fields for the selected incident; each becomes its own tab.
+    let customFields: CustomField[] = [];
+    let fieldsIncidentId = '';
+
+    // Load custom fields whenever the selected incident changes.
+    $: if ($selectedIncident?.incident_id && $selectedIncident.incident_id !== fieldsIncidentId) {
+        fieldsIncidentId = $selectedIncident.incident_id;
+        loadCustomFields(fieldsIncidentId);
+    } else if (!$selectedIncident) {
+        customFields = [];
+        fieldsIncidentId = '';
+    }
+
+    // If the active field tab disappears (e.g. switching incidents), fall back to Alerts.
+    $: if (panelTab !== 'alerts' && panelTab !== 'notes' && !customFields.some(f => f.id === panelTab)) {
+        panelTab = 'alerts';
+    }
+
+    async function loadCustomFields(incidentId: string) {
+        try {
+            const result = await GetIncidentCustomFields(incidentId);
+            // Guard against a stale response if the incident changed mid-flight.
+            if (fieldsIncidentId === incidentId) {
+                customFields = result || [];
+            }
+        } catch (err) {
+            console.error('Failed to load custom fields:', err);
+            if (fieldsIncidentId === incidentId) {
+                customFields = [];
+            }
+        }
+    }
+
+    // Replace a single field in place after it's saved, so its value/saved-state stays in sync.
+    function handleFieldSaved(event: CustomEvent<CustomField>) {
+        const updated = event.detail;
+        customFields = customFields.map(f => (f.id === updated.id ? updated : f));
+    }
+
     $: serviceColor = $selectedIncident ? getServiceColor($selectedIncident.service_summary || 'Unknown Service') : '#6b7280';
     
     // Handle tab switching behavior
@@ -82,8 +124,6 @@
             await ResolveIncident($selectedIncident.incident_id);
             console.log(`Incident ${$selectedIncident.incident_id} resolved successfully`);
             
-            // Close panel after resolving
-            closePanel();
             
         } catch (err) {
             console.error('Failed to resolve incident:', err);
@@ -145,28 +185,48 @@
             
             <!-- Tab Navigation -->
             <div class="panel-tabs">
-                <button 
-                    class="panel-tab" 
+                <button
+                    class="panel-tab"
                     class:active={panelTab === 'alerts'}
                     on:click={() => panelTab = 'alerts'}
                 >
                     Alerts
                 </button>
-                <button 
-                    class="panel-tab" 
+                <button
+                    class="panel-tab"
                     class:active={panelTab === 'notes'}
                     on:click={() => panelTab = 'notes'}
                 >
                     Notes
                 </button>
+                {#each customFields as field (field.id)}
+                    <button
+                        class="panel-tab"
+                        class:active={panelTab === field.id}
+                        on:click={() => panelTab = field.id}
+                        title={field.display_name}
+                    >
+                        {field.display_name}
+                    </button>
+                {/each}
             </div>
-            
+
             <!-- Tab Content -->
             <div class="panel-content">
                 {#if panelTab === 'alerts'}
                     <PanelAlerts incident={$selectedIncident} />
                 {:else if panelTab === 'notes'}
                     <PanelNotes incident={$selectedIncident} />
+                {:else}
+                    {#each customFields as field (field.id)}
+                        {#if panelTab === field.id}
+                            <PanelCustomField
+                                {field}
+                                incidentId={$selectedIncident.incident_id}
+                                on:saved={handleFieldSaved}
+                            />
+                        {/if}
+                    {/each}
                 {/if}
             </div>
         {:else}
@@ -336,6 +396,7 @@
         border-bottom: 1px solid #e0e0e0;
         background: white;
         flex-shrink: 0;
+        overflow-x: auto;
         -webkit-user-select: none;
         -ms-user-select: none;
         user-select: none;
@@ -352,6 +413,7 @@
         color: #6b7280;
         cursor: pointer;
         transition: all 0.2s;
+        white-space: nowrap;
         -webkit-user-select: none;
         -ms-user-select: none;
         user-select: none;
