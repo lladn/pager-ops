@@ -30,6 +30,14 @@ export function GetFilterByUser() {
   return window['go']['main']['App']['GetFilterByUser']();
 }
 
+export function GetIncidentCustomFieldValues(arg1) {
+  return window['go']['main']['App']['GetIncidentCustomFieldValues'](arg1);
+}
+
+export function GetIncidentCustomFields(arg1) {
+  return window['go']['main']['App']['GetIncidentCustomFields'](arg1);
+}
+
 export function GetIncidentSidebarData(arg1) {
   return window['go']['main']['App']['GetIncidentSidebarData'](arg1);
 }
@@ -88,6 +96,10 @@ export function SetBrowserRedirect(arg1) {
 
 export function SetFilterByUser(arg1) {
   return window['go']['main']['App']['SetFilterByUser'](arg1);
+}
+
+export function SetIncidentCustomFieldValue(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetIncidentCustomFieldValue'](arg1, arg2, arg3);
 }
 
 export function SetNotificationEnabled(arg1) {

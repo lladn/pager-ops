@@ -149,12 +149,88 @@ export namespace store {
 	        this.text = source["text"];
 	    }
 	}
+	export class CustomFieldOption {
+	    id: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomFieldOption(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.value = source["value"];
+	    }
+	}
+	export class CustomField {
+	    id: string;
+	    name: string;
+	    display_name: string;
+	    data_type: string;
+	    field_type: string;
+	    options: CustomFieldOption[];
+	    value: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomField(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.data_type = source["data_type"];
+	        this.field_type = source["field_type"];
+	        this.options = this.convertValues(source["options"], CustomFieldOption);
+	        this.value = source["value"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CustomFieldValue {
+	    id: string;
+	    name: string;
+	    display_name: string;
+	    value: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new CustomFieldValue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.display_name = source["display_name"];
+	        this.value = source["value"];
+	    }
+	}
 	export class IncidentAlert {
 	    id: string;
 	    summary: string;
 	    status: string;
 	    created_at: string;
 	    service_name?: string;
+	    description?: string;
 	    links?: AlertLink[];
 	
 	    static createFrom(source: any = {}) {
@@ -168,6 +244,7 @@ export namespace store {
 	        this.status = source["status"];
 	        this.created_at = source["created_at"];
 	        this.service_name = source["service_name"];
+	        this.description = source["description"];
 	        this.links = this.convertValues(source["links"], AlertLink);
 	    }
 	

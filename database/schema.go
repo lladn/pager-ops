@@ -38,6 +38,7 @@ type SidebarAlert struct {
 	Status      string `json:"status"`
 	CreatedAt   string `json:"created_at"`
 	ServiceName string `json:"service_name,omitempty"`
+	Description string `json:"description,omitempty"`
 	Links       string `json:"links,omitempty"` // JSON string
 }
 
@@ -104,16 +105,16 @@ func (db *DB) StoreIncidentAlerts(incidentID string, alerts []SidebarAlert) erro
 		return fmt.Errorf("failed to delete existing alerts: %w", err)
 	}
 	
-	// Prepare insert statement
+	// Prepare insert statement with OR REPLACE to handle concurrent duplicate inserts
 	stmt, err := tx.Prepare(`
-		INSERT INTO incident_alerts (id, incident_id, summary, status, created_at, service_name, links)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO incident_alerts (id, incident_id, summary, status, created_at, service_name, description, links)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
 	defer stmt.Close()
-	
+
 	// Insert new alerts
 	for _, alert := range alerts {
 		_, err = stmt.Exec(
@@ -123,6 +124,7 @@ func (db *DB) StoreIncidentAlerts(incidentID string, alerts []SidebarAlert) erro
 			alert.Status,
 			alert.CreatedAt,
 			alert.ServiceName,
+			alert.Description,
 			alert.Links, // Already JSON string
 		)
 		if err != nil {
@@ -142,34 +144,35 @@ func (db *DB) GetIncidentAlerts(incidentID string) ([]SidebarAlert, error) {
 	defer db.mu.RUnlock()
 	
 	query := `
-		SELECT id, summary, status, created_at, service_name, links
+		SELECT id, summary, status, created_at, service_name, COALESCE(description, '') as description, links
 		FROM incident_alerts
 		WHERE incident_id = ?
 		ORDER BY created_at DESC
 	`
-	
+
 	rows, err := db.conn.Query(query, incidentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query alerts: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var alerts []SidebarAlert
 	for rows.Next() {
 		var alert SidebarAlert
-		
+
 		err := rows.Scan(
 			&alert.ID,
 			&alert.Summary,
 			&alert.Status,
 			&alert.CreatedAt,
 			&alert.ServiceName,
+			&alert.Description,
 			&alert.Links, // JSON string
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan alert: %w", err)
 		}
-		
+
 		alerts = append(alerts, alert)
 	}
 	
@@ -479,6 +482,7 @@ func (db *DB) createSidebarTables() error {
 		status TEXT,
 		created_at TEXT,
 		service_name TEXT,
+		description TEXT,
 		links TEXT,  -- JSON serialized array
 		FOREIGN KEY (incident_id) REFERENCES incidents(incident_id) ON DELETE CASCADE
 	);
@@ -527,7 +531,53 @@ func (db *DB) createSidebarTables() error {
 	if _, err := db.conn.Exec(metadataTable); err != nil {
 		return fmt.Errorf("failed to create incident_sidebar_metadata table: %w", err)
 	}
-	
+
+	// Migrate existing databases: add the description column if it's missing.
+	if err := db.ensureColumn("incident_alerts", "description", "TEXT"); err != nil {
+		return fmt.Errorf("failed to migrate incident_alerts: %w", err)
+	}
+
+	return nil
+}
+
+// ensureColumn adds a column to a table if it does not already exist. Used for
+// lightweight schema migrations on databases created by older app versions.
+func (db *DB) ensureColumn(table, column, columnType string) error {
+	rows, err := db.conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("failed to read table info for %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	exists := false
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			ctype      string
+			notNull    int
+			dfltValue  sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &primaryKey); err != nil {
+			return fmt.Errorf("failed to scan table info for %s: %w", table, err)
+		}
+		if name == column {
+			exists = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if exists {
+		return nil
+	}
+
+	_, err = db.conn.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, columnType))
+	if err != nil {
+		return fmt.Errorf("failed to add column %s to %s: %w", column, table, err)
+	}
 	return nil
 }
 

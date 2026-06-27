@@ -46,6 +46,7 @@ type APIQueue struct {
 // Client represents a PagerDuty API client wrapper with queue
 type Client struct {
 	pd       *pagerduty.Client
+	apiKey   string // retained for raw API calls not covered by go-pagerduty (e.g. incident custom fields)
 	apiQueue *APIQueue
 	logger   func(string)
 }
@@ -68,6 +69,7 @@ func NewClient(apiKey string) (*Client, error) {
 
 	client := &Client{
 		pd:       pdClient,
+		apiKey:   apiKey,
 		apiQueue: queue,
 		logger:   func(msg string) { fmt.Println(msg) }, // Default logger
 	}
@@ -212,6 +214,18 @@ func (c *Client) executeAPICall(req *APIRequest) {
 			Content: opts.Content,
 		}
 		result, err = c.pd.CreateIncidentNoteWithContext(req.Context, opts.IncidentID, note)
+
+	case "GetCustomFields":
+		incidentID := req.Options.(string)
+		result, err = c.fetchIncidentCustomFields(req.Context, incidentID)
+
+	case "GetCustomFieldValues":
+		incidentID := req.Options.(string)
+		result, err = c.fetchIncidentCustomFieldValues(req.Context, incidentID)
+
+	case "SetCustomFieldValue":
+		opts := req.Options.(SetCustomFieldValueRequest)
+		err = c.putIncidentCustomFieldValue(req.Context, opts)
 
 	default:
 		err = fmt.Errorf("unknown API request type: %s", req.Type)
@@ -657,7 +671,15 @@ func (c *Client) GetIncidentAlerts(incidentID string) ([]IncidentAlert, error) {
 							}
 						}
 					}
+
+					// Extract details.Description (the alert's full description text)
+					convertedAlert.Description = extractDescription(cefMap["details"])
 				}
+			}
+
+			// Fall back to a top-level details.Description if CEF didn't provide one
+			if convertedAlert.Description == "" {
+				convertedAlert.Description = extractDescription(alert.Body["details"])
 			}
 		}
 
@@ -708,6 +730,18 @@ func getString(m map[string]interface{}, key string) string {
 		if str, ok := val.(string); ok {
 			return str
 		}
+	}
+	return ""
+}
+
+// extractDescription pulls a "Description" string out of an alert's details
+// payload. The details field may be a map (most common) or a plain string.
+func extractDescription(details interface{}) string {
+	switch d := details.(type) {
+	case map[string]interface{}:
+		return getString(d, "Description")
+	case string:
+		return d
 	}
 	return ""
 }

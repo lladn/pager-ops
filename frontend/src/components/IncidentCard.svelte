@@ -1,19 +1,44 @@
 <script lang="ts">
     import { database } from '../../wailsjs/go/models';
-    import { formatTime, selectedIncident, userAcknowledgedIncidents, markIncidentAcknowledged } from '../stores/incidents';
+    import { formatTime, selectedIncident, userAcknowledgedIncidents, markIncidentAcknowledged, staleThresholdMinutes } from '../stores/incidents';
     import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
     import { AcknowledgeIncident } from '../../wailsjs/go/main/App';
     import { getServiceColor } from '../lib/serviceColors';
-    
+    import { onMount, onDestroy } from 'svelte';
+
     type IncidentData = database.IncidentData;
-    
+
     export let incident: IncidentData;
-    
+
+    // Ticking clock so staleness flips even if the card isn't re-fetched.
+    let now = Date.now();
+    let staleTimer: ReturnType<typeof setInterval>;
+
+    onMount(() => {
+        staleTimer = setInterval(() => {
+            now = Date.now();
+        }, 30000);
+    });
+
+    onDestroy(() => {
+        if (staleTimer) clearInterval(staleTimer);
+    });
+
     $: statusColor = getStatusColor(incident.status);
     $: statusLabel = getStatusLabel(incident.status);
     $: statusBgColor = getStatusBgColor(incident.status);
     $: serviceColor = getServiceColor(incident.service_summary || 'Unknown Service');
     $: isSelected = $selectedIncident?.incident_id === incident.incident_id;
+
+    // Highlight unresolved incidents older than the configured threshold (default 30 min).
+    $: isStale = incident.status !== 'resolved' && isOlderThan(incident.created_at, now, $staleThresholdMinutes * 60 * 1000);
+
+    function isOlderThan(createdAt: any, nowMs: number, thresholdMs: number): boolean {
+        if (!createdAt) return false;
+        const created = new Date(createdAt).getTime();
+        if (isNaN(created)) return false;
+        return nowMs - created >= thresholdMs;
+    }
     
     // Acknowledgment button visibility logic
     $: userAck = $userAcknowledgedIncidents.get(incident.incident_id);
@@ -132,7 +157,7 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="incident-card" class:selected={isSelected} on:click={handleCardClick}>
+<div class="incident-card" class:selected={isSelected} class:stale={isStale} on:click={handleCardClick}>
     <div class="action-buttons">
         <button class="action-button" on:click={openIncident} title="Open incident">
             {#if openFeedback}
@@ -228,6 +253,19 @@
         background: #f9fafb;
         box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.08);
     }
+
+    /* Unresolved incident past the stale threshold: solid red bar on the right edge. */
+    .incident-card.stale::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 4px;
+        background: #dc2626;
+        border-radius: 0 8px 8px 0;
+        pointer-events: none;
+    }
     
     .action-buttons {
         position: absolute;
@@ -296,8 +334,8 @@
     }
     
     .status-circle {
-        width: 13px;
-        height: 13px;
+        width: 15px;
+        height: 15px;
         border-radius: 50%;
         flex-shrink: 0;
     }
