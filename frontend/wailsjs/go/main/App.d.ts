@@ -18,6 +18,10 @@ export function GetBrowserRedirect():Promise<boolean>;
 
 export function GetFilterByUser():Promise<boolean>;
 
+export function GetIncidentCustomFieldValues(arg1:string):Promise<Array<store.CustomFieldValue>>;
+
+export function GetIncidentCustomFields(arg1:string):Promise<Array<store.CustomField>>;
+
 export function GetIncidentSidebarData(arg1:string):Promise<store.IncidentSidebarData>;
 
 export function GetNotificationConfig():Promise<main.NotificationConfig>;
@@ -47,6 +51,8 @@ export function ResolveIncident(arg1:string):Promise<void>;
 export function SetBrowserRedirect(arg1:boolean):Promise<void>;
 
 export function SetFilterByUser(arg1:boolean):Promise<void>;
+
+export function SetIncidentCustomFieldValue(arg1:string,arg2:string,arg3:any):Promise<void>;
 
 export function SetNotificationEnabled(arg1:boolean):Promise<void>;
 

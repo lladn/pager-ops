@@ -294,22 +294,24 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         addingNote = true;
         
         try {
-            // Build structured note data using Wails models
-            const responses = Object.entries(questionResponses)
-                .filter(([_, answer]) => answer && answer.trim())
-                .map(([question, answer]) => 
+            // Build structured note data in the notekit's CONFIGURED order
+            // (serviceTypes), not the order the user happened to fill fields in —
+            // Object key order is insertion order, which made notes inconsistent.
+            const responses = (serviceTypes?.questions || [])
+                .filter(question => questionResponses[question] && questionResponses[question].trim())
+                .map(question =>
                     new store.NoteResponse({
                         question,
-                        answer: answer.trim()
+                        answer: questionResponses[question].trim()
                     })
                 );
-            
-            const tags = Object.entries(tagSelections)
-                .filter(([_, values]) => values && values.length > 0)
-                .map(([tagName, values]) => 
+
+            const tags = (serviceTypes?.tags || [])
+                .filter(tag => tagSelections[tag.name] && tagSelections[tag.name].length > 0)
+                .map(tag =>
                     new store.NoteTag({
-                        tag_name: tagName,
-                        selected_values: values
+                        tag_name: tag.name,
+                        selected_values: tagSelections[tag.name]
                     })
                 );
             

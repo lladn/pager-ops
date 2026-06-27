@@ -61,6 +61,7 @@ type IncidentAlert struct {
 	Status      string      `json:"status"`
 	CreatedAt   string      `json:"created_at"`
 	ServiceName string      `json:"service_name,omitempty"`
+	Description string      `json:"description,omitempty"` // details.Description from the alert body
 	Links       []AlertLink `json:"links,omitempty"`
 }
 

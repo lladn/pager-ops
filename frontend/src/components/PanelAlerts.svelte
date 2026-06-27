@@ -6,7 +6,15 @@
     type IncidentData = database.IncidentData;
     
     export let incident: IncidentData;
-    
+
+    // Per-alert expand/collapse state for the description (default collapsed).
+    let expanded: Record<string, boolean> = {};
+
+    function toggleDescription(id: string) {
+        expanded[id] = !expanded[id];
+        expanded = { ...expanded };
+    }
+
     function formatDate(date: Date | string): string {
         const d = typeof date === 'string' ? new Date(date) : date;
         return d.toLocaleString('en-US', {
@@ -75,14 +83,40 @@
                     <div class="alert-links">
                         <span class="links-label">Links:</span>
                         {#each alert.links as link}
-                            <button 
-                                class="link-button" 
+                            <button
+                                class="link-button"
                                 on:click={() => openLink(link.href)}
                                 title={link.href}
                             >
                                 {link.text || 'View'}
                             </button>
                         {/each}
+                    </div>
+                {/if}
+                {#if alert.description}
+                    <div class="alert-description">
+                        <button
+                            class="description-toggle"
+                            class:open={expanded[alert.id]}
+                            on:click={() => toggleDescription(alert.id)}
+                            type="button"
+                            aria-expanded={expanded[alert.id] ? 'true' : 'false'}
+                        >
+                            <svg
+                                class="chevron"
+                                class:expanded={expanded[alert.id]}
+                                width="14"
+                                height="14"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                            >
+                                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                            </svg>
+                            <span>Description</span>
+                        </button>
+                        {#if expanded[alert.id]}
+                            <div class="description-content">{alert.description}</div>
+                        {/if}
                     </div>
                 {/if}
             </div>
@@ -205,7 +239,54 @@
     .link-button:active {
         color: #1d4ed8;
     }
-    
+
+    .alert-description {
+        margin-top: 10px;
+        border-top: 1px solid #f3f4f6;
+        padding-top: 8px;
+    }
+
+    .description-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        color: #6b7280;
+        font-size: 13px;
+        font-weight: 500;
+        transition: color 0.15s ease;
+    }
+
+    .description-toggle:hover {
+        color: #374151;
+    }
+
+    .chevron {
+        flex-shrink: 0;
+        transition: transform 0.2s ease;
+    }
+
+    .chevron.expanded {
+        transform: rotate(90deg);
+    }
+
+    .description-content {
+        margin-top: 8px;
+        font-size: 13px;
+        color: #374151;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: anywhere;
+        background: #f9fafb;
+        border: 1px solid #f3f4f6;
+        border-radius: 6px;
+        padding: 10px;
+    }
+
     .skeleton-container {
         margin-bottom: 12px;
         padding: 12px;
