@@ -448,7 +448,6 @@ func (a *App) processAndUpdateIncidents(
 	// Get selected services for filtering
 	a.mu.RLock()
 	selectedServices := append([]string{}, a.selectedServices...)
-	filterByUser := a.filterByUser
 	a.mu.RUnlock()
 
 	// Collect incident IDs from current fetch
@@ -470,14 +469,25 @@ func (a *App) processAndUpdateIncidents(
 	}
 
 	// Stale detection logic:
-	// When filterByUser is FALSE: only service fetch does stale detection
-	// When filterByUser is TRUE: service fetch is handled here, user fetch is handled in fetchUserIncidents
-	if !filterByUser && source == "services" {
+	// The service fetch is authoritative for the set of selected services: it
+	// returns every open incident for those services (no user filter), so any
+	// open incident in the DB that belongs to a selected service but is missing
+	// from the response has been resolved/reassigned externally (e.g. via the
+	// PagerDuty web UI) and must be marked resolved.
+	//
+	// This MUST run even when filterByUser is ON. Previously it was gated on
+	// !filterByUser, which left externally-resolved selected-service incidents
+	// lingering in the Open tab whenever Assigned mode was toggled on.
+	//
+	// The containsService guard scopes stale-marking to selected services only,
+	// so assigned incidents from NON-selected services are never wrongly resolved
+	// here — fetchUserIncidents reconciles those via its assigned-diff logic.
+	if source == "services" && len(selectedServices) > 0 {
 		// Find incidents that are in DB but not in current API response
 		for _, existing := range existingOpenIncidents {
 			if !currentMap[existing.IncidentID] {
-				// Only mark as stale if it's from the same service set we're fetching
-				if len(selectedServices) == 0 || containsService(selectedServices, existing.ServiceID) {
+				// Only mark as stale if it's from the service set we're fetching
+				if containsService(selectedServices, existing.ServiceID) {
 					staleIDs = append(staleIDs, existing.IncidentID)
 					a.logger.Info(fmt.Sprintf("[%s] Marking incident as resolved (not in API): %s", source, existing.IncidentID))
 				}
