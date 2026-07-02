@@ -10,6 +10,8 @@
         loadServicesConfig
     } from './stores/incidents';
     import { initializeNotificationListeners, loadNotificationConfig, loadAvailableSounds } from './stores/notifications';
+    import { theme, setTheme } from './stores/theme';
+    import { GetTheme } from '../wailsjs/go/main/App';
     
     import ToolBar from './components/ToolBar.svelte';
     import Header from './components/Header.svelte';
@@ -23,6 +25,15 @@
     onMount(async () => {
         initializeEventListeners();
         initializeNotificationListeners();
+        
+        try {
+            const savedTheme = await GetTheme();
+            if (savedTheme === 'light' || savedTheme === 'dark') {
+                setTheme(savedTheme);
+            }
+        } catch (err) {
+            console.error('Failed to load theme preference:', err);
+        }
         
         await Promise.all([
             loadOpenIncidents(),
@@ -109,7 +120,8 @@
         height: 100vh;
         display: flex;
         flex-direction: column;
-        background: #f9fafb;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
         overflow: hidden;
     }
 
@@ -129,8 +141,8 @@
 
     .tabs-container {
         display: flex;
-        background: white;
-        border-bottom: 1px solid #e0e0e0;
+        background: var(--bg-primary);
+        border-bottom: 1px solid var(--border);
         padding: 0 16px;
     }
 
@@ -144,25 +156,25 @@
         cursor: pointer;
         font-size: 14px;
         font-weight: 500;
-        color: #6b7280;
+        color: var(--text-tertiary);
         border-bottom: 2px solid transparent;
         transition: all 0.2s;
         position: relative;
     }
 
     .tab-button:hover {
-        color: #374151;
-        background: rgba(0, 0, 0, 0.02);
+        color: var(--text-secondary);
+        background: var(--bg-hover);
     }
 
     .tab-button.active {
-        color: #3b82f6;
-        border-bottom-color: #3b82f6;
+        color: var(--accent);
+        border-bottom-color: var(--accent);
     }
 
     .tab-count {
-        background: #f3f4f6;
-        color: #6b7280;
+        background: var(--bg-tertiary);
+        color: var(--text-tertiary);
         padding: 2px 8px;
         border-radius: 10px;
         font-size: 12px;
@@ -172,8 +184,8 @@
     }
 
     .tab-button.active .tab-count {
-        background: #dbeafe;
-        color: #3b82f6;
+        background: var(--accent-soft-strong);
+        color: var(--accent);
     }
 
     .main-content {

@@ -135,8 +135,8 @@
     }
     
     .alert-item {
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 12px;
         margin-bottom: 12px;
@@ -154,7 +154,7 @@
     
     .alert-icon {
         font-size: 18px;
-        color: #f59e0b;
+        color: var(--warning);
         flex-shrink: 0;
     }
     
@@ -166,7 +166,7 @@
     .alert-source {
         display: block;
         font-weight: 500;
-        color: #111827;
+        color: var(--text-primary);
         font-size: 14px;
         margin-bottom: 2px;
         word-wrap: break-word;
@@ -175,7 +175,7 @@
     
     .alert-timestamp {
         display: block;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 12px;
         word-wrap: break-word;
         overflow-wrap: break-word;
@@ -183,24 +183,24 @@
     
     .alert-status {
         font-size: 13px;
-        color: #374151;
+        color: var(--text-secondary);
         margin-bottom: 8px;
         word-wrap: break-word;
         overflow-wrap: break-word;
     }
     
     .status-triggered {
-        color: #dc2626;
+        color: var(--danger);
         font-weight: 500;
     }
     
     .status-acknowledged {
-        color: #f59e0b;
+        color: var(--warning);
         font-weight: 500;
     }
     
     .status-resolved {
-        color: #10b981;
+        color: var(--success);
         font-weight: 500;
     }
     
@@ -216,14 +216,14 @@
     }
     
     .links-label {
-        color: #6b7280;
+        color: var(--text-tertiary);
     }
     
     .link-button {
         background: none;
         border: none;
         padding: 0;
-        color: #3b82f6;
+        color: var(--accent);
         text-decoration: none;
         cursor: pointer;
         font-size: 13px;
@@ -233,16 +233,16 @@
     
     .link-button:hover {
         text-decoration: underline;
-        color: #2563eb;
+        color: var(--accent-hover);
     }
     
     .link-button:active {
-        color: #1d4ed8;
+        color: var(--accent-active);
     }
 
     .alert-description {
         margin-top: 10px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--border-soft);
         padding-top: 8px;
     }
 
@@ -254,14 +254,14 @@
         border: none;
         padding: 0;
         cursor: pointer;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 13px;
         font-weight: 500;
         transition: color 0.15s ease;
     }
 
     .description-toggle:hover {
-        color: #374151;
+        color: var(--text-secondary);
     }
 
     .chevron {
@@ -276,13 +276,13 @@
     .description-content {
         margin-top: 8px;
         font-size: 13px;
-        color: #374151;
+        color: var(--text-secondary);
         line-height: 1.5;
         white-space: pre-wrap;
         word-wrap: break-word;
         overflow-wrap: anywhere;
-        background: #f9fafb;
-        border: 1px solid #f3f4f6;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-soft);
         border-radius: 6px;
         padding: 10px;
     }
@@ -290,15 +290,15 @@
     .skeleton-container {
         margin-bottom: 12px;
         padding: 12px;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
     }
     
     .skeleton-box {
         width: 100px;
         height: 20px;
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--border) 50%, var(--bg-tertiary) 75%);
         background-size: 200% 100%;
         animation: loading 1.5s infinite;
         border-radius: 4px;
@@ -307,7 +307,7 @@
     
     .skeleton-line {
         height: 16px;
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--border) 50%, var(--bg-tertiary) 75%);
         background-size: 200% 100%;
         animation: loading 1.5s infinite;
         border-radius: 4px;
@@ -324,8 +324,8 @@
     }
     
     .error-banner {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
+        background: var(--danger-soft);
+        border: 1px solid var(--danger-border);
         border-radius: 8px;
         padding: 12px;
         display: flex;
@@ -341,7 +341,7 @@
     .error-banner p {
         flex: 1;
         margin: 0;
-        color: #991b1b;
+        color: var(--danger-text);
         font-size: 14px;
         word-wrap: break-word;
         overflow-wrap: break-word;
@@ -349,7 +349,7 @@
     
     .retry-button {
         padding: 4px 12px;
-        background: #dc2626;
+        background: var(--danger);
         color: white;
         border: none;
         border-radius: 4px;
@@ -359,12 +359,12 @@
     }
     
     .retry-button:hover {
-        background: #b91c1c;
+        background: var(--danger-hover);
     }
     
     .alerts-empty {
         text-align: center;
-        color: #6b7280;
+        color: var(--text-tertiary);
         padding: 24px;
     }
 </style>

@@ -84,7 +84,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
+        background: var(--bg-overlay);
         backdrop-filter: blur(4px);
         z-index: 999;
         animation: fadeIn 0.2s ease-out;
@@ -108,14 +108,14 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        background: white;
+        background: var(--bg-primary);
         border-radius: 12px;
         width: 90%;
         max-width: 560px;
         max-height: 90vh;
         overflow-y: auto;
         z-index: 1000;
-        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        box-shadow: var(--shadow-lg);
         animation: slideUp 0.3s ease-out;
         /* Prevent accidental text highlight */
         -webkit-user-select: none;
@@ -137,20 +137,20 @@
     .settings-header {
         position: relative;
         padding: 24px;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--border);
     }
     
     .settings-header h2 {
         margin: 0;
         font-size: 20px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
     }
     
     .settings-subtitle {
         margin: 4px 0 0 0;
         font-size: 13px;
-        color: #6b7280;
+        color: var(--text-tertiary);
     }
     
     .close-button {
@@ -160,26 +160,26 @@
         width: 32px;
         height: 32px;
         border: none;
-        background: #f9fafb;
+        background: var(--bg-secondary);
         border-radius: 8px;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         transition: all 0.2s;
-        color: #6b7280;
+        color: var(--text-tertiary);
     }
     
     .close-button:hover {
-        background: #f3f4f6;
-        color: #374151;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
         transform: rotate(90deg);
     }
     
     .tabs {
         display: flex;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f9fafb;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
     }
     
     .tab {
@@ -190,25 +190,25 @@
         cursor: pointer;
         font-size: 14px;
         font-weight: 500;
-        color: #6b7280;
+        color: var(--text-tertiary);
         border-bottom: 2px solid transparent;
         transition: all 0.2s;
         position: relative;
     }
     
     .tab:hover {
-        color: #374151;
-        background: rgba(255, 255, 255, 0.5);
+        color: var(--text-secondary);
+        background: var(--bg-hover);
     }
     
     .tab.active {
-        color: #3b82f6;
-        background: white;
-        border-bottom-color: #3b82f6;
+        color: var(--accent);
+        background: var(--bg-primary);
+        border-bottom-color: var(--accent);
     }
     
     .tab-content {
-        background: white;
+        background: var(--bg-primary);
         min-height: 200px;
     }
     
@@ -239,23 +239,23 @@
     }
     
     .alert-error {
-        background: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #fecaca;
+        background: var(--danger-soft);
+        color: var(--danger-text);
+        border: 1px solid var(--danger-border);
     }
     
     .alert-error svg {
-        color: #dc2626;
+        color: var(--danger);
     }
     
     .alert-success {
-        background: #dcfce7;
-        color: #14532d;
-        border: 1px solid #bbf7d0;
+        background: var(--success-soft);
+        color: var(--success-text);
+        border: 1px solid var(--success);
     }
     
     .alert-success svg {
-        color: #16a34a;
+        color: var(--success);
     }
     
     /* Custom scrollbar for settings panel */
@@ -264,16 +264,16 @@
     }
     
     .settings-panel::-webkit-scrollbar-track {
-        background: #f3f4f6;
+        background: var(--bg-tertiary);
         border-radius: 0 8px 8px 0;
     }
     
     .settings-panel::-webkit-scrollbar-thumb {
-        background: #d1d5db;
+        background: var(--border-strong);
         border-radius: 4px;
     }
     
     .settings-panel::-webkit-scrollbar-thumb:hover {
-        background: #9ca3af;
+        background: var(--text-muted);
     }
 </style>
