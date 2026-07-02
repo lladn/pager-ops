@@ -2,6 +2,7 @@ package store
 
 import (
 	"pager-ops/database"
+	"strings"
 	"time"
 
 	"github.com/PagerDuty/go-pagerduty"
@@ -35,6 +36,16 @@ func convertToIncidentData(
 		urgency = i.Urgency
 	}
 
+	// Collect the names of everyone who acknowledged the incident.
+	ackNames := make([]string, 0, len(i.Acknowledgements))
+	for _, ack := range i.Acknowledgements {
+		name := ack.Acknowledger.Summary
+		if name != "" {
+			ackNames = append(ackNames, name)
+		}
+	}
+	acknowledgedBy := strings.Join(ackNames, ", ")
+
 	return database.IncidentData{
 		IncidentID:     i.ID,
 		IncidentNumber: incidentNum,
@@ -47,6 +58,7 @@ func convertToIncidentData(
 		UpdatedAt:      updatedAtTime,
 		AlertCount:     alertCount,
 		Urgency:        urgency,
+		AcknowledgedBy: acknowledgedBy,
 	}
 }
 
