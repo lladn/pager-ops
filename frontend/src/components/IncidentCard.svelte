@@ -184,13 +184,21 @@
     
     <div class="incident-header">
         <div class="title-row">
-            <span 
-                class="status-circle" 
+            <span
+                class="status-circle"
                 style="background: {statusColor}; box-shadow: 0 0 0 3px {statusBgColor};"
                 title={statusLabel}
             ></span>
             <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
         </div>
+        {#if incident.acknowledged_by}
+            <div class="acknowledged-by" title="Acknowledged by {incident.acknowledged_by}">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>Acknowledged by {incident.acknowledged_by}</span>
+            </div>
+        {/if}
     </div>
     
     <div class="incident-details">
@@ -352,6 +360,28 @@
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         flex: 1;
+    }
+
+    .acknowledged-by {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 6px;
+        margin-left: 25px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--warning, #eab308);
+        overflow: hidden;
+    }
+
+    .acknowledged-by svg {
+        flex-shrink: 0;
+    }
+
+    .acknowledged-by span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     
     .incident-details {
