@@ -7,7 +7,8 @@
         initializeEventListeners,
         loadOpenIncidents,
         loadResolvedIncidents,
-        loadServicesConfig
+        loadServicesConfig,
+        activeServiceFilter
     } from './stores/incidents';
     import { initializeNotificationListeners, loadNotificationConfig, loadAvailableSounds } from './stores/notifications';
     import { theme, setTheme } from './stores/theme';
@@ -46,6 +47,7 @@
     
     function switchTab(tab: 'open' | 'resolved') {
         activeTab.set(tab);
+        activeServiceFilter.set('all'); // reset service pill filter on tab switch
         if (tab === 'open') {
             loadOpenIncidents();
         } else {
