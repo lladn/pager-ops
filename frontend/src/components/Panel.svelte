@@ -246,8 +246,8 @@
 <style>
     .panel-container {
         height: 100%;
-        background: white;
-        border-left: 1px solid #e0e0e0;
+        background: var(--bg-primary);
+        border-left: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
@@ -273,11 +273,11 @@
     }
     
     .resize-handle:hover {
-        background: rgba(59, 130, 246, 0.3);
+        background: var(--accent-soft);
     }
     
     .resize-handle:active {
-        background: rgba(59, 130, 246, 0.5);
+        background: var(--accent-soft-strong);
     }
     
     .panel-header {
@@ -285,8 +285,8 @@
         justify-content: space-between;
         align-items: center;
         padding: 14px;
-        border-bottom: 1px solid #e0e0e0;
-        background: #fafafa;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
         flex-shrink: 0;
         -webkit-user-select: none;
         -ms-user-select: none;
@@ -297,7 +297,7 @@
         margin: 0;
         font-size: 14px;
         font-weight: 600;
-        color: #2c2c2c;
+        color: var(--text-primary);
     }
     
     .close-button {
@@ -306,7 +306,7 @@
         padding: 4px;
         border-radius: 4px;
         cursor: pointer;
-        color: #666;
+        color: var(--text-tertiary);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -314,14 +314,14 @@
     }
     
     .close-button:hover {
-        background: rgba(0, 0, 0, 0.06);
-        color: #333;
+        background: var(--bg-active);
+        color: var(--text-primary);
     }
     
     .incident-info {
         padding: 16px;
-        border-bottom: 1px solid #e0e0e0;
-        background: #f9fafb;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-secondary);
         flex-shrink: 0;
     }
     
@@ -329,7 +329,7 @@
         margin: 0 0 8px 0;
         font-size: 15px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
         line-height: 1.4;
         word-wrap: break-word;
         overflow-wrap: break-word;
@@ -351,8 +351,8 @@
     
     .resolve-button {
         padding: 4px 10px;
-        background: #10b981;
-        color: white;
+        background: var(--success);
+        color: var(--text-on-accent);
         border: none;
         border-radius: 4px;
         font-size: 12px;
@@ -366,7 +366,7 @@
     }
     
     .resolve-button:hover:not(:disabled) {
-        background: #059669;
+        background: var(--success-hover);
     }
     
     .resolve-button:disabled {
@@ -375,7 +375,7 @@
     }
     
     .resolve-button.loading {
-        background: #6b7280;
+        background: var(--text-tertiary);
     }
     
     .spinner {
@@ -393,8 +393,8 @@
     
     .panel-tabs {
         display: flex;
-        border-bottom: 1px solid #e0e0e0;
-        background: white;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-primary);
         flex-shrink: 0;
         overflow-x: auto;
         -webkit-user-select: none;
@@ -410,7 +410,7 @@
         border-bottom: 2px solid transparent;
         font-size: 14px;
         font-weight: 500;
-        color: #6b7280;
+        color: var(--text-tertiary);
         cursor: pointer;
         transition: all 0.2s;
         white-space: nowrap;
@@ -420,13 +420,13 @@
     }
     
     .panel-tab:hover {
-        background: #f9fafb;
-        color: #374151;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
     }
     
     .panel-tab.active {
-        color: #3b82f6;
-        border-bottom-color: #3b82f6;
+        color: var(--accent);
+        border-bottom-color: var(--accent);
     }
     
     .panel-content {
@@ -441,7 +441,7 @@
         align-items: center;
         justify-content: center;
         padding: 48px 24px;
-        color: #9ca3af;
+        color: var(--text-muted);
         text-align: center;
     }
     
@@ -453,6 +453,6 @@
     .panel-empty-state p {
         margin: 0;
         font-size: 14px;
-        color: #6b7280;
+        color: var(--text-tertiary);
     }
 </style>

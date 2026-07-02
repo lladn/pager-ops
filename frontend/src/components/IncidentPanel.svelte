@@ -143,7 +143,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(255, 255, 255, 0.95);
+        background: var(--bg-overlay);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -152,7 +152,7 @@
     }
     
     .loading-overlay p {
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 14px;
         margin: 0;
     }
@@ -167,7 +167,7 @@
     }
     
     .loading-state p {
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 14px;
         margin: 0;
     }
@@ -175,8 +175,8 @@
     .spinner {
         width: 32px;
         height: 32px;
-        border: 3px solid #e5e7eb;
-        border-top-color: #3b82f6;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -191,21 +191,21 @@
         align-items: center;
         justify-content: center;
         height: 100%;
-        color: #9ca3af;
+        color: var(--text-muted);
         gap: 16px;
         padding: 32px;
     }
     
     .empty-state h3 {
         margin: 0;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 18px;
         font-weight: 600;
     }
     
     .empty-state p {
         margin: 0;
-        color: #9ca3af;
+        color: var(--text-muted);
         font-size: 14px;
     }
     
@@ -217,10 +217,10 @@
     
     .search-results-header {
         padding: 8px 12px;
-        background: #f3f4f6;
+        background: var(--bg-tertiary);
         border-radius: 6px;
         margin-bottom: 12px;
         font-size: 13px;
-        color: #6b7280;
+        color: var(--text-tertiary);
     }
 </style>
