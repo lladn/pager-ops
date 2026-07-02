@@ -216,13 +216,13 @@
         margin-bottom: 8px;
         font-size: 14px;
         font-weight: 500;
-        color: #374151;
+        color: var(--text-secondary);
     }
     
     .add-service-section h3 {
         font-size: 14px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
         margin: 0 0 12px 0;
     }
     
@@ -234,13 +234,15 @@
     
     .service-input {
         padding: 10px 12px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
         font-size: 14px;
+        background: var(--bg-input);
+        color: var(--text-primary);
     }
     
     .services-list {
-        background: #f9fafb;
+        background: var(--bg-secondary);
         border-radius: 8px;
         padding: 16px;
         margin-bottom: 24px;
@@ -249,7 +251,7 @@
     .services-list h3 {
         font-size: 16px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
         margin: 0 0 12px 0;
     }
     
@@ -258,16 +260,16 @@
         justify-content: space-between;
         align-items: center;
         padding: 12px;
-        background: white;
+        background: var(--bg-primary);
         border-radius: 6px;
         margin-bottom: 8px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         transition: opacity 0.2s;
     }
     
     .service-item.disabled {
         opacity: 0.7;
-        background: #f3f4f6;
+        background: var(--bg-tertiary);
     }
     
     .service-item:last-child {
@@ -282,19 +284,19 @@
     
     .service-info strong {
         font-size: 14px;
-        color: #111827;
+        color: var(--text-primary);
     }
     
     .service-id {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-family: monospace;
     }
     
     .disabled-badge {
         font-size: 11px;
-        color: #991b1b;
-        background: #fee2e2;
+        color: var(--danger-text);
+        background: var(--danger-soft);
         padding: 2px 6px;
         border-radius: 3px;
         display: inline-block;
@@ -310,15 +312,17 @@
     .file-input {
         width: 100%;
         padding: 8px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
         font-size: 14px;
         margin-bottom: 8px;
+        background: var(--bg-input);
+        color: var(--text-primary);
     }
     
     .help-text {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--text-tertiary);
         margin: 4px 0 0 0;
     }
     
@@ -333,19 +337,19 @@
     }
     
     .btn-primary {
-        background: #3b82f6;
-        color: white;
+        background: var(--accent);
+        color: var(--text-on-accent);
     }
     
     .btn-primary:hover {
-        background: #2563eb;
+        background: var(--accent-hover);
     }
     
     .btn-remove {
         padding: 6px 12px;
-        background: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #fca5a5;
+        background: var(--danger-soft);
+        color: var(--danger-text);
+        border: 1px solid var(--danger-border);
         border-radius: 4px;
         font-size: 12px;
         font-weight: 500;
@@ -354,15 +358,14 @@
     }
     
     .btn-remove:hover {
-        background: #fecaca;
-        border-color: #f87171;
+        background: var(--danger-border);
     }
     
     .btn-toggle {
         padding: 6px 12px;
-        background: #fef3c7;
-        color: #92400e;
-        border: 1px solid #fde68a;
+        background: var(--warning-soft);
+        color: var(--warning);
+        border: 1px solid var(--warning-soft);
         border-radius: 4px;
         font-size: 12px;
         font-weight: 500;
@@ -371,18 +374,16 @@
     }
     
     .btn-toggle:hover {
-        background: #fde68a;
-        border-color: #fbbf24;
+        filter: brightness(1.1);
     }
     
     .btn-toggle.btn-enable {
-        background: #dcfce7;
-        color: #166534;
-        border-color: #bbf7d0;
+        background: var(--success-soft);
+        color: var(--success);
+        border-color: var(--success-soft);
     }
     
     .btn-toggle.btn-enable:hover {
-        background: #bbf7d0;
-        border-color: #86efac;
+        filter: brightness(1.1);
     }
 </style>

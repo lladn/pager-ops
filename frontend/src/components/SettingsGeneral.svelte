@@ -5,12 +5,13 @@
         loadNotificationConfig, 
         loadAvailableSounds } from '../stores/notifications';
     import { assignedFilterEnabled, staleThresholdMinutes, STALE_THRESHOLD_OPTIONS } from '../stores/incidents';
+    import { theme, setTheme } from '../stores/theme';
     import { 
         ConfigureAPIKey, GetAPIKey, 
         GetFilterByUser, SetFilterByUser, 
         SetNotificationEnabled, SetNotificationSound, TestNotificationSound, 
         SnoozeNotificationSound, UnsnoozeNotificationSound, IsNotificationSnoozed, 
-        SetBrowserRedirect, GetBrowserRedirect
+        SetBrowserRedirect, GetBrowserRedirect, SetTheme
     } from '../../wailsjs/go/main/App';
     import { onMount } from 'svelte';
     
@@ -51,6 +52,15 @@
             console.error('Failed to get browser redirect setting:', err);
         }
     });
+    
+    async function selectTheme(value: 'light' | 'dark') {
+        setTheme(value);
+        try {
+            await SetTheme(value);
+        } catch (err) {
+            console.error('Failed to persist theme setting:', err);
+        }
+    }
     
     async function saveApiKey() {
         errorMessage = '';
@@ -157,6 +167,44 @@
 </script>
 
 <div class="general-settings">
+    <!-- Appearance Section -->
+    <div class="settings-section">
+        <h3>Appearance</h3>
+        <p class="setting-description">Choose how PagerOps looks</p>
+        <div class="theme-toggle-group">
+            <button
+                class="theme-option"
+                class:active={$theme === 'light'}
+                on:click={() => selectTheme('light')}
+                type="button"
+            >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5"></circle>
+                    <line x1="12" y1="1" x2="12" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="23"></line>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                    <line x1="1" y1="12" x2="3" y2="12"></line>
+                    <line x1="21" y1="12" x2="23" y2="12"></line>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+                Light
+            </button>
+            <button
+                class="theme-option"
+                class:active={$theme === 'dark'}
+                on:click={() => selectTheme('dark')}
+                type="button"
+            >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+                Dark
+            </button>
+        </div>
+    </div>
+    
     <!-- API Key Section -->
     <div class="settings-section">
         <h3>API Key</h3>
@@ -308,7 +356,7 @@
     
     .settings-section {
         padding: 20px;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--border);
     }
     
     .settings-section:last-child {
@@ -318,15 +366,47 @@
     .settings-section h3 {
         font-size: 14px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
         margin: 0 0 8px 0;
     }
     
     .settings-section h4 {
         font-size: 13px;
         font-weight: 600;
-        color: #374151;
+        color: var(--text-secondary);
         margin: 0 0 4px 0;
+    }
+
+    .theme-toggle-group {
+        display: flex;
+        gap: 8px;
+    }
+
+    .theme-option {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--bg-input);
+        color: var(--text-secondary);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .theme-option:hover {
+        border-color: var(--text-muted);
+    }
+
+    .theme-option.active {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent);
     }
 
     .api-key-controls {
@@ -339,24 +419,26 @@
     .settings-input {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
         font-size: 14px;
+        background: var(--bg-input);
+        color: var(--text-primary);
     }
 
     .settings-select {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
         font-size: 14px;
-        color: #374151;
-        background: white;
+        color: var(--text-secondary);
+        background: var(--bg-input);
         cursor: pointer;
     }
 
     .settings-select:hover {
-        border-color: #9ca3af;
+        border-color: var(--text-muted);
     }
     
     .toggle-setting {
@@ -367,7 +449,7 @@
     
     .setting-description {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--text-tertiary);
         margin: 4px 0 0 0;
         margin-bottom: 7px;
     }
@@ -376,7 +458,7 @@
         position: relative;
         width: 48px;
         height: 24px;
-        background: #d1d5db;
+        background: var(--border-strong);
         border: none;
         border-radius: 12px;
         cursor: pointer;
@@ -384,7 +466,7 @@
     }
     
     .toggle-button.active {
-        background: #3b82f6;
+        background: var(--accent);
     }
     
     .toggle-slider {
@@ -405,13 +487,13 @@
     .notification-settings {
         margin-top: 16px;
         padding-top: 16px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--border-soft);
     }
     
     .browser-redirect-setting {
         margin-top: 16px;
         padding-top: 16px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--border-soft);
     }
     
     .sound-setting {
@@ -428,19 +510,19 @@
     .sound-selector {
         width: 100%;
         padding: 8px 12px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
-        background: white;
+        background: var(--bg-input);
         cursor: pointer;
         display: flex;
         justify-content: space-between;
         align-items: center;
         font-size: 14px;
-        color: #374151;
+        color: var(--text-secondary);
     }
     
     .sound-selector:hover {
-        border-color: #9ca3af;
+        border-color: var(--text-muted);
     }
     
     .sound-dropdown {
@@ -448,10 +530,10 @@
         top: calc(100% + 4px);
         left: 0;
         right: 0;
-        background: white;
-        border: 1px solid #d1d5db;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-strong);
         border-radius: 6px;
-        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        box-shadow: var(--shadow-md);
         z-index: 100;
         max-height: 200px;
         overflow-y: auto;
@@ -465,17 +547,17 @@
         text-align: left;
         cursor: pointer;
         font-size: 14px;
-        color: #374151;
+        color: var(--text-secondary);
         transition: background 0.1s;
     }
     
     .sound-option:hover {
-        background: #f9fafb;
+        background: var(--bg-hover);
     }
     
     .sound-option.selected {
-        background: #eff6ff;
-        color: #2563eb;
+        background: var(--accent-soft);
+        color: var(--accent);
         font-weight: 500;
     }
     
@@ -491,7 +573,7 @@
     
     .snooze-description {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--text-tertiary);
         margin: 4px 0 0 0;
     }
     
@@ -506,20 +588,20 @@
     }
     
     .btn-primary {
-        background: #2563eb;
-        color: white;
+        background: var(--accent);
+        color: var(--text-on-accent);
     }
     
     .btn-primary:hover {
-        background: #1d4ed8;
+        background: var(--accent-hover);
     }
     
     .btn-secondary {
-        background: #f3f4f6;
-        color: #374151;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
     }
     
     .btn-secondary:hover {
-        background: #e5e7eb;
+        background: var(--bg-active);
     }
 </style>

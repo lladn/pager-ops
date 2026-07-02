@@ -687,6 +687,42 @@ func (a *App) GetBrowserRedirect() bool {
 	return false
 }
 
+// SetTheme persists the UI theme preference ("light" or "dark").
+func (a *App) SetTheme(theme string) error {
+	if theme != "light" && theme != "dark" {
+		return fmt.Errorf("invalid theme: %s", theme)
+	}
+
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	if err := a.db.SetState("theme", theme); err != nil {
+		if a.logger != nil {
+			a.logger.Error(fmt.Sprintf("Failed to persist theme setting: %v", err))
+		}
+		return err
+	}
+
+	if a.logger != nil {
+		a.logger.Info(fmt.Sprintf("Theme set to: %s", theme))
+	}
+	return nil
+}
+
+// GetTheme returns the persisted UI theme preference, defaulting to "dark".
+func (a *App) GetTheme() string {
+	if a.db == nil {
+		return "dark"
+	}
+
+	value, err := a.db.GetState("theme")
+	if err != nil || value == "" {
+		return "dark"
+	}
+	return value
+}
+
 func (a *App) StartPolling() {
 	a.pollMu.Lock()
 	defer a.pollMu.Unlock()

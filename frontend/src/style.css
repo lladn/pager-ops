@@ -1,3 +1,119 @@
+:root, [data-theme="light"] {
+    /* Surfaces */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f9fafb;
+    --bg-tertiary: #f3f4f6;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-active: rgba(0, 0, 0, 0.06);
+    --bg-input: #f9fafb;
+    --bg-overlay: rgba(0, 0, 0, 0.5);
+
+    /* Borders */
+    --border: #e5e7eb;
+    --border-soft: #f3f4f6;
+    --border-strong: #d1d5db;
+
+    /* Text */
+    --text-primary: #111827;
+    --text-secondary: #374151;
+    --text-tertiary: #6b7280;
+    --text-muted: #9ca3af;
+    --text-on-accent: #ffffff;
+
+    /* Accent (Radar blue-ish for light mode) */
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --accent-active: #1d4ed8;
+    --accent-soft: #eff6ff;
+    --accent-soft-strong: #dbeafe;
+    --accent-border: #93c5fd;
+
+    /* Status colors */
+    --danger: #dc2626;
+    --danger-hover: #b91c1c;
+    --danger-soft: #fee2e2;
+    --danger-border: #fecaca;
+    --danger-text: #991b1b;
+
+    --success: #10b981;
+    --success-hover: #059669;
+    --success-soft: #dcfce7;
+    --success-text: #14532d;
+
+    --warning: #f59e0b;
+    --warning-soft: #fefce8;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+    --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+    --scrollbar-track: #f1f1f1;
+    --scrollbar-thumb: #cbd5e1;
+    --scrollbar-thumb-hover: #94a3b8;
+
+    color-scheme: light;
+}
+
+[data-theme="dark"] {
+    /* Surfaces — dark grey with a purple tint (Radar-style) */
+    --bg-primary: #201d29;
+    --bg-secondary: #262232;
+    --bg-tertiary: #2f2a3d;
+    --bg-elevated: #2a2635;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-active: rgba(255, 255, 255, 0.1);
+    --bg-input: #2a2635;
+    --bg-overlay: rgba(0, 0, 0, 0.65);
+
+    /* Borders */
+    --border: #3d3750;
+    --border-soft: #332e42;
+    --border-strong: #4a4460;
+
+    /* Text */
+    --text-primary: #ede9f7;
+    --text-secondary: #cbc4dd;
+    --text-tertiary: #a49cbd;
+    --text-muted: #7d7594;
+    --text-on-accent: #ffffff;
+
+    /* Accent — Radar purple */
+    --accent: #9d6bff;
+    --accent-hover: #8452f0;
+    --accent-active: #6f3ce0;
+    --accent-soft: rgba(157, 107, 255, 0.16);
+    --accent-soft-strong: rgba(157, 107, 255, 0.28);
+    --accent-border: #7c5cd6;
+
+    /* Status colors (kept vivid so they still read as red/green/yellow on dark) */
+    --danger: #f87171;
+    --danger-hover: #ef4444;
+    --danger-soft: rgba(248, 113, 113, 0.14);
+    --danger-border: rgba(248, 113, 113, 0.35);
+    --danger-text: #fca5a5;
+
+    --success: #34d399;
+    --success-hover: #10b981;
+    --success-soft: rgba(52, 211, 153, 0.14);
+    --success-text: #6ee7b7;
+
+    --warning: #fbbf24;
+    --warning-soft: rgba(251, 191, 36, 0.14);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -1px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+
+    --scrollbar-track: #2a2635;
+    --scrollbar-thumb: #4a4460;
+    --scrollbar-thumb-hover: #5f5878;
+
+    color-scheme: dark;
+}
+
 :root {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
       'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -21,6 +137,8 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    background: var(--bg-primary);
+    color: var(--text-primary);
   }
   
   #app {
@@ -37,22 +155,22 @@
   }
   
   ::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--scrollbar-track);
     border-radius: 4px;
   }
   
   ::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: var(--scrollbar-thumb);
     border-radius: 4px;
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+    background: var(--scrollbar-thumb-hover);
   }
   
   /* Focus Styles */
   :focus {
-    outline: 2px solid #3b82f6;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   
@@ -60,7 +178,7 @@
   input:focus,
   select:focus,
   textarea:focus {
-    outline: 2px solid #3b82f6;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   
