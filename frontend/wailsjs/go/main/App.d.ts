@@ -40,6 +40,8 @@ export function GetServiceNameByID(arg1:string):Promise<string>;
 
 export function GetServicesConfig():Promise<store.ServicesConfig>;
 
+export function GetTheme():Promise<string>;
+
 export function IsNotificationSnoozed():Promise<boolean>;
 
 export function ReadFile(arg1:string):Promise<string>;
@@ -59,6 +61,8 @@ export function SetNotificationEnabled(arg1:boolean):Promise<void>;
 export function SetNotificationSound(arg1:string):Promise<void>;
 
 export function SetSelectedServices(arg1:Array<string>):Promise<void>;
+
+export function SetTheme(arg1:string):Promise<void>;
 
 export function SnoozeNotificationSound(arg1:number):Promise<void>;
 

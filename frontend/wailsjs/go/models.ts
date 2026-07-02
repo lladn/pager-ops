@@ -14,6 +14,7 @@ export namespace database {
 	    updated_at: any;
 	    alert_count: number;
 	    urgency: string;
+	    acknowledged_by: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new IncidentData(source);
@@ -32,6 +33,7 @@ export namespace database {
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.alert_count = source["alert_count"];
 	        this.urgency = source["urgency"];
+	        this.acknowledged_by = source["acknowledged_by"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

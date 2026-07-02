@@ -72,13 +72,13 @@
     function getStatusBgColor(status: string): string {
         switch (status) {
             case 'triggered':
-                return '#fef2f2'; // red light background
+                return 'rgba(239, 68, 68, 0.18)'; // red halo
             case 'acknowledged':
-                return '#fefce8'; // yellow light background
+                return 'rgba(234, 179, 8, 0.18)'; // yellow halo
             case 'resolved':
-                return '#f0fdf4'; // green light background
+                return 'rgba(16, 185, 129, 0.18)'; // green halo
             default:
-                return '#f9fafb'; // gray light background
+                return 'rgba(107, 114, 128, 0.18)'; // gray halo
         }
     }
     
@@ -184,13 +184,21 @@
     
     <div class="incident-header">
         <div class="title-row">
-            <span 
-                class="status-circle" 
+            <span
+                class="status-circle"
                 style="background: {statusColor}; box-shadow: 0 0 0 3px {statusBgColor};"
                 title={statusLabel}
             ></span>
             <h3 class="incident-title" title={incident.title}>{incident.title}</h3>
         </div>
+        {#if incident.acknowledged_by}
+            <div class="acknowledged-by" title="Acknowledged by {incident.acknowledged_by}">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>Acknowledged by {incident.acknowledged_by}</span>
+            </div>
+        {/if}
     </div>
     
     <div class="incident-details">
@@ -232,8 +240,8 @@
 
 <style>
     .incident-card {
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-left: 3px solid transparent;
         border-radius: 8px;
         padding: 16px;
@@ -244,14 +252,14 @@
     }
     
     .incident-card:hover {
-        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        box-shadow: var(--shadow-md);
         transform: translateY(-1px);
     }
     
     .incident-card.selected {
-        border-left-color: var(--service-color, #3b82f6);
-        background: #f9fafb;
-        box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.08);
+        border-left-color: var(--service-color, var(--accent));
+        background: var(--bg-secondary);
+        box-shadow: var(--shadow-sm);
     }
 
     /* Unresolved incident past the stale threshold: solid red bar on the right edge. */
@@ -262,7 +270,7 @@
         right: 0;
         bottom: 0;
         width: 4px;
-        background: #dc2626;
+        background: var(--danger);
         border-radius: 0 8px 8px 0;
         pointer-events: none;
     }
@@ -282,7 +290,7 @@
         border: 1px solid transparent;
         border-radius: 4px;
         cursor: pointer;
-        color: #9ca3af;
+        color: var(--text-muted);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -292,21 +300,21 @@
     }
     
     .action-button:hover {
-        background: #f3f4f6;
-        border-color: #e5e7eb;
-        color: #6b7280;
+        background: var(--bg-tertiary);
+        border-color: var(--border);
+        color: var(--text-tertiary);
         transform: translateY(-1px);
     }
     
     .action-button:active {
         transform: translateY(0);
-        background: #e5e7eb;
+        background: var(--bg-active);
     }
     
     .feedback-text {
         font-size: 10px;
         font-weight: 600;
-        color: #059669;
+        color: var(--success);
         white-space: nowrap;
         animation: fadeIn 0.2s ease;
     }
@@ -343,7 +351,7 @@
     .incident-title {
         font-size: 15px;
         font-weight: 600;
-        color: #111827;
+        color: var(--text-primary);
         margin: 0;
         line-height: 1.4;
         overflow: hidden;
@@ -352,6 +360,28 @@
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         flex: 1;
+    }
+
+    .acknowledged-by {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 6px;
+        margin-left: 25px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--warning, #eab308);
+        overflow: hidden;
+    }
+
+    .acknowledged-by svg {
+        flex-shrink: 0;
+    }
+
+    .acknowledged-by span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     
     .incident-details {
@@ -374,7 +404,7 @@
     .meta-row {
         display: flex;
         align-items: center;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 13px;
         flex-wrap: wrap;
     }
@@ -385,12 +415,12 @@
     
     .alert-count {
         font-weight: 500;
-        color: #dc2626;
+        color: var(--danger);
     }
     
     .incident-number {
         font-weight: 500;
-        color: #4b5563;
+        color: var(--text-secondary);
     }
     
     /* Acknowledge button styles - RED theme */
@@ -406,9 +436,9 @@
         padding: 4px 10px;
         font-size: 12px;
         font-weight: 500;
-        color: #dc2626;
+        color: var(--danger);
         background: transparent;
-        border: 1px solid #fecaca;
+        border: 1px solid var(--danger-border);
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -416,9 +446,9 @@
     }
     
     .acknowledge-button:hover {
-        background: #fef2f2;
-        border-color: #dc2626;
-        color: #b91c1c;
+        background: var(--danger-soft);
+        border-color: var(--danger);
+        color: var(--danger-hover);
         transform: translateY(-1px);
         box-shadow: 0 2px 4px rgba(220, 38, 38, 0.1);
     }

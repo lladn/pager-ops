@@ -29,6 +29,7 @@ type IncidentData struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 	AlertCount     int       `json:"alert_count"`
 	Urgency        string    `json:"urgency"`
+	AcknowledgedBy string    `json:"acknowledged_by"`
 }
 
 // SidebarAlert represents alert data stored in database
@@ -455,6 +456,7 @@ func (db *DB) createTables() error {
 		updated_at DATETIME,
 		alert_count INTEGER DEFAULT 0,
 		urgency TEXT DEFAULT 'low',
+		acknowledged_by TEXT DEFAULT '',
 		UNIQUE(incident_id)
 	);
 
@@ -466,6 +468,11 @@ func (db *DB) createTables() error {
 
 	if _, err := db.conn.Exec(incidentsTable); err != nil {
 		return fmt.Errorf("failed to create incidents table: %w", err)
+	}
+
+	// Migrate existing databases: add the acknowledged_by column if it's missing.
+	if err := db.ensureColumn("incidents", "acknowledged_by", "TEXT DEFAULT ''"); err != nil {
+		return fmt.Errorf("failed to migrate incidents: %w", err)
 	}
 
 	return nil
@@ -647,10 +654,10 @@ func (db *DB) UpsertIncident(incident IncidentData) error {
 	// Use REPLACE for SQLite upsert pattern
 	query := `
 		REPLACE INTO incidents (
-			incident_id, incident_number, title, service_summary, 
-			service_id, status, html_url, created_at, updated_at, 
-			alert_count, urgency
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			incident_id, incident_number, title, service_summary,
+			service_id, status, html_url, created_at, updated_at,
+			alert_count, urgency, acknowledged_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := db.conn.Exec(query,
@@ -665,6 +672,7 @@ func (db *DB) UpsertIncident(incident IncidentData) error {
 		incident.UpdatedAt,
 		incident.AlertCount,
 		incident.Urgency,
+		incident.AcknowledgedBy,
 	)
 
 	if err != nil {
@@ -687,10 +695,10 @@ func (db *DB) BatchUpsertIncidents(incidents []IncidentData) error {
 
 	stmt, err := tx.Prepare(`
 		REPLACE INTO incidents (
-			incident_id, incident_number, title, service_summary, 
-			service_id, status, html_url, created_at, updated_at, 
-			alert_count, urgency
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			incident_id, incident_number, title, service_summary,
+			service_id, status, html_url, created_at, updated_at,
+			alert_count, urgency, acknowledged_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -710,6 +718,7 @@ func (db *DB) BatchUpsertIncidents(incidents []IncidentData) error {
 			incident.UpdatedAt,
 			incident.AlertCount,
 			incident.Urgency,
+			incident.AcknowledgedBy,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to upsert incident %s: %w", incident.IncidentID, err)
@@ -729,9 +738,10 @@ func (db *DB) GetOpenIncidents() ([]IncidentData, error) {
 	defer db.mu.RUnlock()
 
 	query := `
-		SELECT incident_id, incident_number, title, service_summary, 
+		SELECT incident_id, incident_number, title, service_summary,
 			   service_id, status, html_url, created_at, updated_at, alert_count,
-			   COALESCE(urgency, 'low') as urgency
+			   COALESCE(urgency, 'low') as urgency,
+			   COALESCE(acknowledged_by, '') as acknowledged_by
 		FROM incidents
 		WHERE status IN ('triggered', 'acknowledged')
 		ORDER BY 
@@ -763,6 +773,7 @@ func (db *DB) GetOpenIncidents() ([]IncidentData, error) {
 			&i.UpdatedAt,
 			&i.AlertCount,
 			&i.Urgency,
+			&i.AcknowledgedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan incident: %w", err)
@@ -783,9 +794,10 @@ func (db *DB) GetResolvedIncidents() ([]IncidentData, error) {
 	defer db.mu.RUnlock()
 
 	query := `
-		SELECT incident_id, incident_number, title, service_summary, 
+		SELECT incident_id, incident_number, title, service_summary,
 			   service_id, status, html_url, created_at, updated_at, alert_count,
-			   COALESCE(urgency, 'low') as urgency
+			   COALESCE(urgency, 'low') as urgency,
+			   COALESCE(acknowledged_by, '') as acknowledged_by
 		FROM incidents
 		WHERE status = 'resolved'
 		ORDER BY updated_at DESC
@@ -813,6 +825,7 @@ func (db *DB) GetResolvedIncidents() ([]IncidentData, error) {
 			&i.UpdatedAt,
 			&i.AlertCount,
 			&i.Urgency,
+			&i.AcknowledgedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan incident: %w", err)
@@ -859,9 +872,10 @@ func (db *DB) GetResolvedIncidentsByServices(serviceIDs []string) ([]IncidentDat
 	}
 
 	query := fmt.Sprintf(`
-		SELECT incident_id, incident_number, title, service_summary, 
+		SELECT incident_id, incident_number, title, service_summary,
 			   service_id, status, html_url, created_at, updated_at, alert_count,
-			   COALESCE(urgency, 'low') as urgency
+			   COALESCE(urgency, 'low') as urgency,
+			   COALESCE(acknowledged_by, '') as acknowledged_by
 		FROM incidents
 		WHERE status = 'resolved' AND service_id IN (%s)
 		ORDER BY updated_at DESC
@@ -889,6 +903,7 @@ func (db *DB) GetResolvedIncidentsByServices(serviceIDs []string) ([]IncidentDat
 			&i.UpdatedAt,
 			&i.AlertCount,
 			&i.Urgency,
+			&i.AcknowledgedBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan incident: %w", err)
@@ -1031,10 +1046,10 @@ func (db *DB) UpdateIncidentsBatch(incidents []IncidentData, staleIDs []string) 
 	// Prepare upsert statement
 	upsertStmt, err := tx.Prepare(`
 		REPLACE INTO incidents (
-			incident_id, incident_number, title, service_summary, 
-			service_id, status, html_url, created_at, updated_at, 
-			alert_count, urgency
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			incident_id, incident_number, title, service_summary,
+			service_id, status, html_url, created_at, updated_at,
+			alert_count, urgency, acknowledged_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare upsert statement: %w", err)
@@ -1055,6 +1070,7 @@ func (db *DB) UpdateIncidentsBatch(incidents []IncidentData, staleIDs []string) 
 			incident.UpdatedAt,
 			incident.AlertCount,
 			incident.Urgency,
+			incident.AcknowledgedBy,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to upsert incident %s: %w", incident.IncidentID, err)
@@ -1095,9 +1111,10 @@ func (db *DB) GetIncidentByID(incidentID string) (IncidentData, error) {
 	defer db.mu.RUnlock()
 
 	query := `
-		SELECT incident_id, incident_number, title, service_summary, 
+		SELECT incident_id, incident_number, title, service_summary,
 			   service_id, status, html_url, created_at, updated_at, alert_count,
-			   COALESCE(urgency, 'low') as urgency
+			   COALESCE(urgency, 'low') as urgency,
+			   COALESCE(acknowledged_by, '') as acknowledged_by
 		FROM incidents
 		WHERE incident_id = ?
 	`
@@ -1115,6 +1132,7 @@ func (db *DB) GetIncidentByID(incidentID string) (IncidentData, error) {
 		&incident.UpdatedAt,
 		&incident.AlertCount,
 		&incident.Urgency,
+		&incident.AcknowledgedBy,
 	)
 
 	if err == sql.ErrNoRows {
