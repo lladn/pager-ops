@@ -74,6 +74,10 @@ export function GetServicesConfig() {
   return window['go']['main']['App']['GetServicesConfig']();
 }
 
+export function GetTheme() {
+  return window['go']['main']['App']['GetTheme']();
+}
+
 export function IsNotificationSnoozed() {
   return window['go']['main']['App']['IsNotificationSnoozed']();
 }
@@ -112,6 +116,10 @@ export function SetNotificationSound(arg1) {
 
 export function SetSelectedServices(arg1) {
   return window['go']['main']['App']['SetSelectedServices'](arg1);
+}
+
+export function SetTheme(arg1) {
+  return window['go']['main']['App']['SetTheme'](arg1);
 }
 
 export function SnoozeNotificationSound(arg1) {

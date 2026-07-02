@@ -1,5 +1,7 @@
 <script lang="ts">
     import { settingsOpen, panelOpen } from '../stores/incidents';
+    import { theme, toggleTheme } from '../stores/theme';
+    import { SetTheme } from '../../wailsjs/go/main/App';
     
     function openSettings() {
         settingsOpen.set(true);
@@ -7,6 +9,15 @@
     
     function togglePanel() {
         panelOpen.update(value => !value);
+    }
+    
+    async function handleToggleTheme() {
+        toggleTheme();
+        try {
+            await SetTheme($theme);
+        } catch (err) {
+            console.error('Failed to persist theme setting:', err);
+        }
     }
 </script>
 
@@ -18,6 +29,25 @@
             <h3 class="app-title">PagerOps</h3>
         </div>
         <div class="toolbar-right">
+            <button class="theme-button" on:click={handleToggleTheme} title="Toggle theme">
+                {#if $theme === 'dark'}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                {:else}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                {/if}
+            </button>
             <button class="panel-button" on:click={togglePanel} title="Toggle Panel" class:active={$panelOpen}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -36,8 +66,8 @@
 
 <style>
     .toolbar {
-        background: linear-gradient(to bottom, #fafafa, #f5f5f5);
-        border-bottom: 1px solid #e0e0e0;
+        background: linear-gradient(to bottom, var(--bg-primary), var(--bg-secondary));
+        border-bottom: 1px solid var(--border);
         height: 38px;
         -webkit-app-region: drag;
         --wails-draggable: drag;
@@ -70,7 +100,7 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         font-size: 15px;
         font-weight: 600;
-        color: #2c2c2c;
+        color: var(--text-primary);
         margin: 0;
         letter-spacing: -0.2px;
         white-space: nowrap;
@@ -82,6 +112,7 @@
         gap: 4px;
     }
     
+    .theme-button,
     .panel-button,
     .settings-button {
         background: transparent;
@@ -89,7 +120,7 @@
         padding: 4px;
         border-radius: 4px;
         cursor: pointer;
-        color: #666;
+        color: var(--text-tertiary);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -98,14 +129,15 @@
         transition: all 0.2s;
     }
     
+    .theme-button:hover,
     .panel-button:hover,
     .settings-button:hover {
-        background: rgba(0, 0, 0, 0.06);
-        color: #333;
+        background: var(--bg-active);
+        color: var(--text-primary);
     }
     
     .panel-button.active {
-        background: rgba(59, 130, 246, 0.1);
-        color: #3b82f6;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 </style>

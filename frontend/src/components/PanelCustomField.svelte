@@ -269,7 +269,7 @@
         display: block;
         font-size: 13px;
         font-weight: 500;
-        color: #374151;
+        color: var(--text-secondary);
         margin-bottom: 6px;
     }
 
@@ -292,10 +292,10 @@
     .dropdown-button {
         width: 100%;
         padding: 8px 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 13px;
-        background: #f9fafb;
+        background: var(--bg-input);
         text-align: left;
         cursor: pointer;
         display: flex;
@@ -305,12 +305,12 @@
     }
 
     .dropdown-button:hover {
-        background: #ffffff;
-        border-color: #d1d5db;
+        background: var(--bg-primary);
+        border-color: var(--border-strong);
     }
 
     .dropdown-arrow {
-        color: #9ca3af;
+        color: var(--text-muted);
         flex-shrink: 0;
         transition: transform 0.2s ease;
     }
@@ -323,10 +323,10 @@
        scrollable panel (the previous absolute menu could get cut off). */
     .dropdown-list {
         margin-top: 6px;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 6px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        box-shadow: var(--shadow-sm);
         max-height: 240px;
         overflow-y: auto;
     }
@@ -335,7 +335,7 @@
         width: 100%;
         padding: 8px 12px;
         border: none;
-        background: white;
+        background: var(--bg-elevated);
         text-align: left;
         font-size: 13px;
         cursor: pointer;
@@ -343,21 +343,22 @@
         align-items: center;
         gap: 8px;
         transition: background 0.15s ease;
+        color: var(--text-secondary);
     }
 
     .dropdown-item:hover {
-        background: #f9fafb;
+        background: var(--bg-hover);
     }
 
     .dropdown-item.selected {
-        background: #eff6ff;
-        color: #2563eb;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
 
     .checkbox {
         width: 16px;
         height: 16px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 3px;
         display: flex;
         align-items: center;
@@ -367,16 +368,16 @@
     }
 
     .checkbox.checked {
-        background: #3b82f6;
-        border-color: #3b82f6;
+        background: var(--accent);
+        border-color: var(--accent);
         color: white;
     }
 
     .save-button {
         padding: 8px 12px;
         background: transparent;
-        color: #d1d5db;
-        border: 1px solid #e5e7eb;
+        color: var(--border-strong);
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 13px;
         font-weight: 500;
@@ -390,14 +391,14 @@
     }
 
     .save-button.active {
-        color: #ffffff;
-        background: #3b82f6;
-        border-color: #3b82f6;
+        color: var(--text-on-accent);
+        background: var(--accent);
+        border-color: var(--accent);
         cursor: pointer;
     }
 
     .save-button.active:hover:not(:disabled) {
-        background: #2563eb;
+        background: var(--accent-hover);
     }
 
     .save-button:disabled {
@@ -406,16 +407,16 @@
     }
 
     .save-button.loading {
-        background: #eff6ff;
-        color: #3b82f6;
-        border-color: #93c5fd;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: var(--accent-border);
     }
 
     .spinner {
         width: 14px;
         height: 14px;
-        border: 2px solid #93c5fd;
-        border-top: 2px solid #3b82f6;
+        border: 2px solid var(--accent-border);
+        border-top: 2px solid var(--accent);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -437,8 +438,8 @@
         align-items: center;
         gap: 4px;
         padding: 4px 8px;
-        background: #eff6ff;
-        color: #1e40af;
+        background: var(--accent-soft);
+        color: var(--accent);
         font-size: 12px;
         font-weight: 500;
         border-radius: 4px;
@@ -447,7 +448,7 @@
     .tag-remove {
         background: none;
         border: none;
-        color: #1e40af;
+        color: var(--accent);
         font-size: 16px;
         line-height: 1;
         cursor: pointer;
@@ -456,22 +457,22 @@
     }
 
     .tag-remove:hover {
-        color: #1e3a8a;
+        color: var(--accent-active);
     }
 
     .field-readonly {
         padding: 8px 10px;
-        border: 1px solid #f3f4f6;
+        border: 1px solid var(--border-soft);
         border-radius: 6px;
         font-size: 13px;
-        color: #6b7280;
-        background: #f9fafb;
+        color: var(--text-tertiary);
+        background: var(--bg-secondary);
     }
 
     .field-status {
         margin-top: 14px;
         padding-top: 12px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--border-soft);
     }
 
     .status-header {
@@ -484,7 +485,7 @@
     .status-label {
         font-size: 12px;
         font-weight: 600;
-        color: #6b7280;
+        color: var(--text-tertiary);
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
@@ -496,14 +497,14 @@
         padding: 2px;
         background: none;
         border: none;
-        color: #9ca3af;
+        color: var(--text-muted);
         cursor: pointer;
         border-radius: 4px;
         transition: color 0.15s ease;
     }
 
     .status-refresh:hover:not(:disabled) {
-        color: #3b82f6;
+        color: var(--accent);
     }
 
     .status-refresh:disabled {
@@ -517,20 +518,20 @@
     .status-value {
         display: block;
         font-size: 14px;
-        color: #111827;
+        color: var(--text-primary);
         font-weight: 500;
         word-wrap: break-word;
         overflow-wrap: anywhere;
     }
 
     .status-value.muted {
-        color: #9ca3af;
+        color: var(--text-muted);
         font-weight: 400;
         font-style: italic;
     }
 
     .status-value.status-error {
-        color: #991b1b;
+        color: var(--danger-text);
         font-weight: 400;
         font-size: 13px;
     }
@@ -538,8 +539,8 @@
     .error-banner {
         margin-top: 12px;
         padding: 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
+        background: var(--danger-soft);
+        border: 1px solid var(--danger-border);
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -553,7 +554,7 @@
     .error-banner p {
         flex: 1;
         margin: 0;
-        color: #991b1b;
+        color: var(--danger-text);
         font-size: 13px;
         word-wrap: break-word;
         overflow-wrap: break-word;

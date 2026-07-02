@@ -257,19 +257,19 @@
         align-items: center;
         gap: 8px;
         padding: 8px 12px;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
         cursor: pointer;
         font-size: 14px;
-        color: #374151;
+        color: var(--text-secondary);
         transition: all 0.2s;
         min-width: 160px;
     }
     
     .filter-button:hover {
-        background: #f9fafb;
-        border-color: #d1d5db;
+        background: var(--bg-secondary);
+        border-color: var(--border-strong);
     }
     
     .filter-text {
@@ -299,10 +299,10 @@
         position: absolute;
         top: calc(100% + 4px);
         left: 0;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 8px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        box-shadow: var(--shadow-md);
         min-width: 200px;
         max-height: 400px;
         overflow-y: auto;
@@ -319,46 +319,47 @@
         background: none;
         cursor: pointer;
         font-size: 14px;
-        color: #374151;
+        color: var(--text-secondary);
         text-align: left;
         transition: background-color 0.15s;
     }
     
     .dropdown-item:hover {
-        background: #f3f4f6;
+        background: var(--bg-tertiary);
     }
     
     .checkbox {
         width: 16px;
         height: 16px;
-        border: 2px solid #d1d5db;
+        border: 2px solid var(--border-strong);
         border-radius: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        color: var(--accent);
     }
     
     .dropdown-item:hover .checkbox {
-        border-color: #9ca3af;
+        border-color: var(--text-muted);
     }
     
     .partial-check {
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 18px;
         line-height: 1;
     }
     
     .dropdown-divider {
         height: 1px;
-        background: #e5e7eb;
+        background: var(--border);
         margin: 4px 0;
     }
     
     .no-services {
         padding: 20px;
         text-align: center;
-        color: #9ca3af;
+        color: var(--text-muted);
         font-size: 14px;
     }
 </style>

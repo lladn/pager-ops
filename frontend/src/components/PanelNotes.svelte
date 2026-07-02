@@ -638,7 +638,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         margin: 0;
         font-size: 14px;
         font-weight: 600;
-        color: #303030;
+        color: var(--text-primary);
     }
     
     .draft-status {
@@ -648,19 +648,19 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .draft-status.saving {
-        color: #3b82f6;
-        background: #eff6ff;
+        color: var(--accent);
+        background: var(--accent-soft);
     }
     
     .draft-status.saved {
-        color: #10b981;
-        background: #f0fdf4;
+        color: var(--success);
+        background: var(--success-soft);
     }
     
     .config-loading {
         padding: 12px;
         text-align: center;
-        color: #6b7280;
+        color: var(--text-tertiary);
         font-size: 13px;
     }
     
@@ -671,7 +671,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .subsection-title {
         font-size: 12px;
         font-weight: 600;
-        color: #6b7280;
+        color: var(--text-tertiary);
         margin: 0 0 8px 0;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -685,31 +685,31 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         display: block;
         font-size: 13px;
         font-weight: 500;
-        color: #374151;
+        color: var(--text-secondary);
         margin-bottom: 6px;
     }
     
     .question-textarea {
         width: 100%;
         padding: 8px 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 13px;
-        color: #1f2937;
-        background: #f9fafb;
+        color: var(--text-primary);
+        background: var(--bg-input);
         resize: vertical;
         font-family: inherit;
         transition: all 0.2s ease;
     }
     
     .question-textarea::placeholder {
-        color: #9ca3af;
+        color: var(--text-muted);
     }
     
     .question-textarea:focus {
         outline: none;
-        background: #ffffff;
-        border-color: #d1d5db;
+        background: var(--bg-primary);
+        border-color: var(--border-strong);
     }
     
     /* Custom Dropdown Styles */
@@ -720,10 +720,10 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .dropdown-button {
         width: 100%;
         padding: 8px 10px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 13px;
-        background: #f9fafb;
+        background: var(--bg-input);
         text-align: left;
         cursor: pointer;
         display: flex;
@@ -733,12 +733,12 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .dropdown-button:hover {
-        background: #ffffff;
-        border-color: #d1d5db;
+        background: var(--bg-primary);
+        border-color: var(--border-strong);
     }
     
     .dropdown-arrow {
-    color: #9ca3af;
+    color: var(--text-muted);
     flex-shrink: 0;
     transition: transform 0.2s ease;
     }
@@ -753,10 +753,10 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         left: 0;
         right: 0;
         margin-top: 4px;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
         border-radius: 6px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-md);
         max-height: 200px;
         overflow-y: auto;
         z-index: 100;
@@ -766,7 +766,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         width: 100%;
         padding: 8px 12px;
         border: none;
-        background: white;
+        background: var(--bg-elevated);
         text-align: left;
         font-size: 13px;
         cursor: pointer;
@@ -774,21 +774,22 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         align-items: center;
         gap: 8px;
         transition: background 0.15s ease;
+        color: var(--text-secondary);
     }
     
     .dropdown-item:hover {
-        background: #f9fafb;
+        background: var(--bg-hover);
     }
     
     .dropdown-item.selected {
-        background: #eff6ff;
-        color: #2563eb;
+        background: var(--accent-soft);
+        color: var(--accent);
     }
     
     .checkbox {
         width: 16px;
         height: 16px;
-        border: 1px solid #d1d5db;
+        border: 1px solid var(--border-strong);
         border-radius: 3px;
         display: flex;
         align-items: center;
@@ -798,8 +799,8 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .checkbox.checked {
-        background: #3b82f6;
-        border-color: #3b82f6;
+        background: var(--accent);
+        border-color: var(--accent);
         color: white;
     }
     
@@ -824,8 +825,8 @@ function restoreDraftFromLocalStorage(incidentId: string) {
         align-items: center;
         gap: 4px;
         padding: 4px 8px;
-        background: #eff6ff;
-        color: #1e40af;
+        background: var(--accent-soft);
+        color: var(--accent);
         font-size: 12px;
         font-weight: 500;
         border-radius: 4px;
@@ -834,7 +835,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .tag-remove {
         background: none;
         border: none;
-        color: #1e40af;
+        color: var(--accent);
         font-size: 16px;
         line-height: 1;
         cursor: pointer;
@@ -843,17 +844,17 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .tag-remove:hover {
-        color: #1e3a8a;
+        color: var(--accent-active);
     }
     
     .note-textarea {
         width: 100%;
         padding: 10px 12px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 14px;
-        color: #1f2937;
-        background: #f9fafb;
+        color: var(--text-primary);
+        background: var(--bg-input);
         resize: vertical;
         font-family: inherit;
         min-height: 80px;
@@ -862,20 +863,20 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
 
     .note-textarea::placeholder {
-        color: #9ca3af;
+        color: var(--text-muted);
     }
     
     .note-textarea:focus {
         outline: none;
-        background: #ffffff;
-        border-color: #d1d5db;
+        background: var(--bg-primary);
+        border-color: var(--border-strong);
     }
     
     .add-note-button {
         padding: 4px 8px;
         background: transparent;
-        color: #d1d5db;
-        border: 1px solid #e5e7eb;
+        color: var(--border-strong);
+        border: 1px solid var(--border);
         border-radius: 6px;
         font-size: 13px;
         font-weight: 500;
@@ -887,14 +888,14 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .add-note-button.active {
-        color: #ffffff;
-        background: #3b82f6;
-        border-color: #3b82f6;
+        color: var(--text-on-accent);
+        background: var(--accent);
+        border-color: var(--accent);
         cursor: pointer;
     }
     
     .add-note-button.active:hover:not(:disabled) {
-        background: #2563eb;
+        background: var(--accent-hover);
     }
     
     .add-note-button:disabled {
@@ -903,17 +904,17 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .add-note-button.loading {
-        background: #eff6ff;
-        color: #3b82f6;
-        border-color: #93c5fd;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border-color: var(--accent-border);
     }
     
     /* Spinner animation */
     .spinner {
         width: 14px;
         height: 14px;
-        border: 2px solid #93c5fd;
-        border-top: 2px solid #3b82f6;
+        border: 2px solid var(--accent-border);
+        border-top: 2px solid var(--accent);
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
@@ -931,8 +932,8 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .note-item {
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 14px;
     }
@@ -947,12 +948,12 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     
     .note-author {
         font-weight: 500;
-        color: #111827;
+        color: var(--text-primary);
         font-size: 14px;
     }
     
     .note-time {
-        color: #9ca3af;
+        color: var(--text-muted);
         font-size: 12px;
         flex-shrink: 0;
     }
@@ -964,7 +965,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .response-item {
         margin-bottom: 12px;
         padding-bottom: 12px;
-        border-bottom: 1px solid #f3f4f6;
+        border-bottom: 1px solid var(--border-soft);
     }
     
     .response-item:last-child {
@@ -976,13 +977,13 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .response-question {
         font-size: 12px;
         font-weight: 600;
-        color: #6b7280;
+        color: var(--text-tertiary);
         margin-bottom: 4px;
     }
     
     .response-answer {
         font-size: 14px;
-        color: #374151;
+        color: var(--text-secondary);
         line-height: 1.5;
         white-space: pre-wrap;
     }
@@ -990,7 +991,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .note-tags-display {
         margin-bottom: 12px;
         padding: 10px;
-        background: #f9fafb;
+        background: var(--bg-secondary);
         border-radius: 6px;
     }
     
@@ -1005,7 +1006,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .tag-display-name {
         font-size: 12px;
         font-weight: 600;
-        color: #6b7280;
+        color: var(--text-tertiary);
         display: block;
         margin-bottom: 4px;
     }
@@ -1019,8 +1020,8 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .tag-display-chip {
         display: inline-block;
         padding: 2px 8px;
-        background: #e5e7eb;
-        color: #374151;
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
         border-radius: 4px;
         font-size: 11px;
         font-weight: 500;
@@ -1028,7 +1029,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     
     .note-content {
     font-size: 12px;
-    color: #374151;
+    color: var(--text-secondary);
     line-height: 1.4;
     white-space: pre-wrap;
     word-wrap: break-word;
@@ -1039,7 +1040,7 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
 
     .note-content :global(a.note-link) {
-        color: #2563eb;
+        color: var(--accent);
         text-decoration: underline;
         cursor: pointer;
         word-break: break-all;
@@ -1047,34 +1048,34 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
 
     .note-content :global(a.note-link:hover) {
-        color: #1d4ed8;
-        background: #eff6ff;
+        color: var(--accent-hover);
+        background: var(--accent-soft);
         text-decoration: underline;
     }
 
     .note-content :global(a.note-link:active) {
-        color: #1e40af;
+        color: var(--accent-active);
     }
     
     .notes-empty {
         padding: 24px;
         text-align: center;
-        color: #9ca3af;
+        color: var(--text-muted);
         font-size: 14px;
     }
     
     /* Loading skeletons */
     .skeleton-container {
         padding: 14px;
-        background: white;
-        border: 1px solid #e5e7eb;
+        background: var(--bg-primary);
+        border: 1px solid var(--border);
         border-radius: 8px;
         margin-bottom: 12px;
     }
     
     .skeleton-line {
         height: 16px;
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--border) 50%, var(--bg-tertiary) 75%);
         background-size: 200% 100%;
         animation: skeleton-loading 1.5s ease-in-out infinite;
         border-radius: 4px;
@@ -1098,8 +1099,8 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     /* Error banner */
     .error-banner {
         padding: 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
+        background: var(--danger-soft);
+        border: 1px solid var(--danger-border);
         border-radius: 8px;
         display: flex;
         align-items: center;
@@ -1115,13 +1116,13 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     .error-banner p {
         flex: 1;
         margin: 0;
-        color: #991b1b;
+        color: var(--danger-text);
         font-size: 13px;
     }
     
     .retry-button {
         padding: 4px 12px;
-        background: #dc2626;
+        background: var(--danger);
         color: white;
         border: none;
         border-radius: 4px;
@@ -1132,6 +1133,6 @@ function restoreDraftFromLocalStorage(incidentId: string) {
     }
     
     .retry-button:hover {
-        background: #b91c1c;
+        background: var(--danger-hover);
     }
 </style>
