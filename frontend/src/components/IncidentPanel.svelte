@@ -5,7 +5,8 @@
         activeTab, 
         loading,
         serviceFilterLoading,
-        activeServiceFilter } from '../stores/incidents';
+        activeServiceFilter,
+        showServicePills } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
     import { getServiceColor } from '../lib/serviceColors';
     import type { database } from '../../wailsjs/go/models';
@@ -96,8 +97,8 @@
             </div>
         {/if}
 
-        <!-- Service pill tabs — only visible when 2+ services are present -->
-        {#if serviceNames.length >= 2}
+        <!-- Service pill tabs — only visible when 2+ services are present and setting is enabled -->
+        {#if $showServicePills && serviceNames.length >= 2}
             <div class="service-tabs">
                 <button
                     class="service-pill"
@@ -281,6 +282,7 @@
     .service-tabs {
         display: flex;
         align-items: center;
+        justify-content: center;
         flex-wrap: wrap;
         gap: 6px;
         padding: 8px 16px 6px;
