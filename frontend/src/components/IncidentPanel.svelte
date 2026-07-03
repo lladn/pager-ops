@@ -4,8 +4,11 @@
         resolvedIncidents, 
         activeTab, 
         loading,
-        serviceFilterLoading } from '../stores/incidents';
+        serviceFilterLoading,
+        activeServiceFilter,
+        showServicePills } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
+    import { getServiceColor } from '../lib/serviceColors';
     import type { database } from '../../wailsjs/go/models';
     
     export let type: 'open' | 'resolved';
@@ -18,7 +21,25 @@
     $: filteredIncidents = filterIncidents(incidents, searchQuery);
     $: sortedIncidents = sortIncidents(filteredIncidents, sortBy);
     $: isActive = $activeTab === type;
-    
+
+    // Derive the unique services present in the current incident list
+    $: serviceNames = getUniqueServices(incidents);
+
+    // Final list after applying the service tab filter
+    $: displayedIncidents = $activeServiceFilter === 'all'
+        ? sortedIncidents
+        : sortedIncidents.filter(i => (i.service_summary || 'Unknown Service') === $activeServiceFilter);
+
+    function getUniqueServices(list: IncidentData[]): string[] {
+        const seen = new Set<string>();
+        list.forEach(i => seen.add(i.service_summary || 'Unknown Service'));
+        return Array.from(seen).sort((a, b) => a.localeCompare(b));
+    }
+
+    function setServiceFilter(name: string) {
+        activeServiceFilter.set(name);
+    }
+
     function filterIncidents(incidentsList: IncidentData[], query: string): IncidentData[] {
         if (!query || !query.trim()) return incidentsList;
         
@@ -58,6 +79,11 @@
                 });
         }
     }
+
+    // Count incidents per service for the badge
+    function countForService(name: string): number {
+        return sortedIncidents.filter(i => (i.service_summary || 'Unknown Service') === name).length;
+    }
 </script>
 
 {#if isActive}
@@ -70,13 +96,39 @@
                 </div>
             </div>
         {/if}
+
+        <!-- Service pill tabs — only visible when 2+ services are present and setting is enabled -->
+        {#if $showServicePills && serviceNames.length >= 2}
+            <div class="service-tabs">
+                <button
+                    class="service-pill"
+                    class:active={$activeServiceFilter === 'all'}
+                    on:click={() => setServiceFilter('all')}
+                >
+                    All
+                    <span class="pill-count">{sortedIncidents.length}</span>
+                </button>
+                {#each serviceNames as name}
+                    <button
+                        class="service-pill"
+                        class:active={$activeServiceFilter === name}
+                        style="--pill-color: {getServiceColor(name)}"
+                        on:click={() => setServiceFilter(name)}
+                    >
+                        <span class="pill-dot" style="background: {getServiceColor(name)}"></span>
+                        <span class="pill-label">{name}</span>
+                        <span class="pill-count">{countForService(name)}</span>
+                    </button>
+                {/each}
+            </div>
+        {/if}
         
         {#if $loading}
             <div class="loading-state">
                 <div class="spinner"></div>
                 <p>Loading incidents...</p>
             </div>
-        {:else if sortedIncidents.length === 0}
+        {:else if displayedIncidents.length === 0}
             <div class="empty-state">
                 {#if searchQuery}
                     <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -108,10 +160,10 @@
             <div class="incidents-list">
                 {#if searchQuery}
                     <div class="search-results-header">
-                        Found {sortedIncidents.length} {type} incident{sortedIncidents.length !== 1 ? 's' : ''} matching "{searchQuery}"
+                        Found {displayedIncidents.length} {type} incident{displayedIncidents.length !== 1 ? 's' : ''} matching "{searchQuery}"
                     </div>
                 {/if}
-                {#each sortedIncidents as incident (incident.incident_id)}
+                {#each displayedIncidents as incident (incident.incident_id)}
                     <IncidentCard {incident} />
                 {/each}
             </div>
@@ -125,6 +177,8 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
     
     .service-filter-loading {
@@ -210,7 +264,7 @@
     }
     
     .incidents-list {
-        height: 100%;
+        flex: 1;
         overflow-y: auto;
         padding: 16px;
     }
@@ -223,4 +277,82 @@
         font-size: 13px;
         color: var(--text-tertiary);
     }
+
+    /* ── Service pill tabs ─────────────────────────────────── */
+    .service-tabs {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 16px 6px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .service-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: var(--bg-secondary);
+        color: var(--text-tertiary);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        white-space: nowrap;
+        max-width: 160px;
+        flex-shrink: 0;
+        transition: all 0.15s ease;
+    }
+
+    .pill-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .service-pill:hover {
+        background: var(--bg-tertiary);
+        border-color: var(--border-strong);
+        color: var(--text-secondary);
+    }
+
+    .service-pill.active {
+        background: var(--accent-soft);
+        border-color: var(--accent-border);
+        color: var(--accent);
+    }
+
+    .service-pill.active[style] {
+        background: color-mix(in srgb, var(--pill-color) 15%, transparent);
+        border-color: color-mix(in srgb, var(--pill-color) 40%, transparent);
+        color: var(--pill-color);
+    }
+
+    .pill-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .pill-count {
+        background: var(--bg-tertiary);
+        color: var(--text-muted);
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .service-pill.active .pill-count {
+        background: var(--accent-soft-strong);
+        color: var(--accent);
+    }
+
 </style>

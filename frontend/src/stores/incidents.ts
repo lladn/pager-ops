@@ -31,6 +31,14 @@ export const serviceFilterLoading = writable(false);
 // Shared store for assigned filter state (synced across ServiceFilter and SettingsGeneral)
 export const assignedFilterEnabled = writable<boolean>(false);
 
+// Store for service tab filter — holds a service name or 'all'
+export const activeServiceFilter = writable<string>('all');
+
+// Store for toggling service pill visibility (persisted to localStorage)
+const storedShowServicePills = localStorage.getItem('showServicePills');
+export const showServicePills = writable<boolean>(storedShowServicePills !== null ? storedShowServicePills === 'true' : true);
+showServicePills.subscribe(val => localStorage.setItem('showServicePills', String(val)));
+
 // Stale incident highlight threshold (minutes). Display preference persisted in localStorage.
 const STALE_THRESHOLD_KEY = 'stale_threshold_minutes';
 const DEFAULT_STALE_THRESHOLD = 30;
