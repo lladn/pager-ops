@@ -222,6 +222,19 @@ func (uc *UserCache) Set(userID string, user interface{}) {
 	uc.expiresAt = time.Now().Add(1 * time.Hour)
 }
 
+// UserName returns the cached user's display name, matching the acknowledger
+// names stored on incidents. Empty if no user is cached. Ignores expiry so the
+// "assigned to me" flag stays stable between cache refreshes.
+func (uc *UserCache) UserName() string {
+	uc.mu.RLock()
+	defer uc.mu.RUnlock()
+
+	if u, ok := uc.user.(*pagerduty.User); ok {
+		return u.Name
+	}
+	return ""
+}
+
 func (uc *UserCache) Invalidate() {
 	uc.mu.Lock()
 	defer uc.mu.Unlock()
@@ -580,6 +593,21 @@ func (a *App) processAndUpdateIncidents(
 func containsService(services []string, serviceID string) bool {
 	for _, s := range services {
 		if s == serviceID {
+			return true
+		}
+	}
+	return false
+}
+
+// nameInList reports whether name appears in a comma-separated list of names
+// (e.g. the acknowledged_by field), matched case-insensitively.
+func nameInList(csv, name string) bool {
+	if csv == "" || name == "" {
+		return false
+	}
+	target := strings.TrimSpace(name)
+	for _, part := range strings.Split(csv, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), target) {
 			return true
 		}
 	}
@@ -1454,9 +1482,11 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		return nil, err
 	}
 
-	// Get user ID for filtering assigned incidents
+	// Get user ID for the assigned-incident set. Resolve it regardless of
+	// filterByUser so the AssignedToMe flag stays accurate even when the
+	// dropdown "Assigned" toggle is off (the union fetch keeps the set fresh).
 	var userID string
-	if filterByUser && a.userCache != nil {
+	if a.userCache != nil {
 		cachedID, valid := a.userCache.Get()
 		if valid {
 			userID = cachedID
@@ -1476,6 +1506,23 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		}
 	}
 
+	// The logged-in user's display name, used to match acknowledger names.
+	var userName string
+	if a.userCache != nil {
+		userName = a.userCache.UserName()
+	}
+
+	// stampAssigned marks each incident as "mine" — assigned to the current user
+	// OR acknowledged by them — so the frontend can render the cross-service
+	// "Assigned" pill.
+	stampAssigned := func(list []database.IncidentData) []database.IncidentData {
+		for i := range list {
+			list[i].AssignedToMe = assignedIncidentIDs[list[i].IncidentID] ||
+				nameInList(list[i].AcknowledgedBy, userName)
+		}
+		return list
+	}
+
 	// Handle filtering based on mode
 	if len(enabledServices) == 0 {
 		if filterByUser && userID != "" {
@@ -1486,7 +1533,7 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 					assignedIncidents = append(assignedIncidents, incident)
 				}
 			}
-			return assignedIncidents, nil
+			return stampAssigned(assignedIncidents), nil
 		}
 		// Assigned Mode OFF + No Services Selected → return empty
 		return []database.IncidentData{}, nil
@@ -1518,7 +1565,7 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 			}
 		}
 
-		return filteredIncidents, nil
+		return stampAssigned(filteredIncidents), nil
 	}
 
 	// Assigned Mode OFF + Services Selected → show only selected services
@@ -1534,7 +1581,7 @@ func (a *App) GetOpenIncidents(serviceIDs []string) ([]database.IncidentData, er
 		}
 	}
 
-	return filteredIncidents, nil
+	return stampAssigned(filteredIncidents), nil
 }
 
 func (a *App) ToggleServiceDisabled(serviceID interface{}) error {
