@@ -1,43 +1,80 @@
 <script lang="ts">
-    import { 
-        openIncidents, 
-        resolvedIncidents, 
-        activeTab, 
+    import {
+        openIncidents,
+        resolvedIncidents,
+        activeTab,
         loading,
         serviceFilterLoading,
         activeServiceFilter,
-        showServicePills } from '../stores/incidents';
+        servicesConfig } from '../stores/incidents';
     import IncidentCard from './IncidentCard.svelte';
     import { getServiceColor } from '../lib/serviceColors';
-    import type { database } from '../../wailsjs/go/models';
-    
+    import type { database, store } from '../../wailsjs/go/models';
+
     export let type: 'open' | 'resolved';
     export let searchQuery: string = '';
     export let sortBy: 'time' | 'service' | 'alerts' = 'time';
-    
+
     type IncidentData = database.IncidentData;
-    
+    type ServicesConfig = store.ServicesConfig;
+
+    // Reserved filter value for the cross-service "Assigned to me" pill.
+    const ASSIGNED = '__assigned__';
+
     $: incidents = type === 'open' ? $openIncidents : $resolvedIncidents;
     $: filteredIncidents = filterIncidents(incidents, searchQuery);
     $: sortedIncidents = sortIncidents(filteredIncidents, sortBy);
     $: isActive = $activeTab === type;
 
-    // Derive the unique services present in the current incident list
-    $: serviceNames = getUniqueServices(incidents);
+    // Derive the unique service aliases present in the current incident list
+    $: serviceNames = getUniqueServices(incidents, $servicesConfig);
+
+    // "Assigned to me" pill — only on the Open tab, and only when such incidents exist.
+    $: assignedCount = type === 'open'
+        ? sortedIncidents.filter(i => i.assigned_to_me).length
+        : 0;
+    $: showAssignedPill = assignedCount > 0;
+
+    // The service tabs appear when sorting by service and there are at least
+    // two buckets to choose between (services and/or the Assigned pill).
+    $: showServiceTabs = sortBy === 'service'
+        && (serviceNames.length + (showAssignedPill ? 1 : 0)) >= 2;
+
+    // Clear a stale Assigned selection if the pill is no longer shown (active panel only).
+    $: if (isActive && $activeServiceFilter === ASSIGNED && !showAssignedPill) {
+        activeServiceFilter.set('all');
+    }
 
     // Final list after applying the service tab filter
-    $: displayedIncidents = $activeServiceFilter === 'all'
-        ? sortedIncidents
-        : sortedIncidents.filter(i => (i.service_summary || 'Unknown Service') === $activeServiceFilter);
+    $: displayedIncidents = filterByPill(sortedIncidents, $activeServiceFilter, $servicesConfig);
 
-    function getUniqueServices(list: IncidentData[]): string[] {
+    function filterByPill(list: IncidentData[], filter: string, config: ServicesConfig | null): IncidentData[] {
+        if (filter === 'all') return list;
+        if (filter === ASSIGNED) return list.filter(i => i.assigned_to_me);
+        return list.filter(i => serviceAlias(i, config) === filter);
+    }
+
+    // Resolve an incident's display name to the alias configured in Settings,
+    // falling back to the raw PagerDuty service summary when unmapped.
+    function serviceAlias(incident: IncidentData, config: ServicesConfig | null): string {
+        if (config?.services && incident.service_id) {
+            for (const svc of config.services) {
+                const ids = typeof svc.id === 'string' ? [svc.id] : (Array.isArray(svc.id) ? svc.id : []);
+                if (ids.includes(incident.service_id)) return svc.name;
+            }
+        }
+        return incident.service_summary || 'Unknown Service';
+    }
+
+    function getUniqueServices(list: IncidentData[], config: ServicesConfig | null): string[] {
         const seen = new Set<string>();
-        list.forEach(i => seen.add(i.service_summary || 'Unknown Service'));
+        list.forEach(i => seen.add(serviceAlias(i, config)));
         return Array.from(seen).sort((a, b) => a.localeCompare(b));
     }
 
+    // Click the active pill again to clear the filter (there is no explicit "All").
     function setServiceFilter(name: string) {
-        activeServiceFilter.set(name);
+        activeServiceFilter.set($activeServiceFilter === name ? 'all' : name);
     }
 
     function filterIncidents(incidentsList: IncidentData[], query: string): IncidentData[] {
@@ -82,7 +119,7 @@
 
     // Count incidents per service for the badge
     function countForService(name: string): number {
-        return sortedIncidents.filter(i => (i.service_summary || 'Unknown Service') === name).length;
+        return sortedIncidents.filter(i => serviceAlias(i, $servicesConfig) === name).length;
     }
 </script>
 
@@ -97,17 +134,27 @@
             </div>
         {/if}
 
-        <!-- Service pill tabs — only visible when 2+ services are present and setting is enabled -->
-        {#if $showServicePills && serviceNames.length >= 2}
+        <!-- Service tabs — only visible when sorting by service -->
+        {#if showServiceTabs}
             <div class="service-tabs">
-                <button
-                    class="service-pill"
-                    class:active={$activeServiceFilter === 'all'}
-                    on:click={() => setServiceFilter('all')}
-                >
-                    All
-                    <span class="pill-count">{sortedIncidents.length}</span>
-                </button>
+                {#if showAssignedPill}
+                    <button
+                        class="service-pill assigned-pill"
+                        class:active={$activeServiceFilter === ASSIGNED}
+                        on:click={() => setServiceFilter(ASSIGNED)}
+                        title="Incidents assigned to you"
+                    >
+                        <svg class="pill-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        <span class="pill-label">Assigned</span>
+                        <span class="pill-count">{assignedCount}</span>
+                    </button>
+                    {#if serviceNames.length > 0}
+                        <span class="pill-divider" aria-hidden="true"></span>
+                    {/if}
+                {/if}
                 {#each serviceNames as name}
                     <button
                         class="service-pill"
@@ -115,7 +162,6 @@
                         style="--pill-color: {getServiceColor(name)}"
                         on:click={() => setServiceFilter(name)}
                     >
-                        <span class="pill-dot" style="background: {getServiceColor(name)}"></span>
                         <span class="pill-label">{name}</span>
                         <span class="pill-count">{countForService(name)}</span>
                     </button>
@@ -278,34 +324,32 @@
         color: var(--text-tertiary);
     }
 
-    /* ── Service pill tabs ─────────────────────────────────── */
+    /* ── Service tabs (minimal segmented control) ──────────── */
     .service-tabs {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 8px 16px 6px;
+        align-items: stretch;
+        gap: 4px;
+        padding: 8px 16px;
         border-bottom: 1px solid var(--border);
         flex-shrink: 0;
     }
 
     .service-pill {
+        flex: 1 1 0;
+        min-width: 0;
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 4px 10px;
-        border-radius: 20px;
-        border: 1px solid var(--border);
-        background: var(--bg-secondary);
+        justify-content: center;
+        gap: 6px;
+        padding: 6px 8px;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
         color: var(--text-tertiary);
         font-size: 12px;
         font-weight: 500;
         cursor: pointer;
-        white-space: nowrap;
-        max-width: 160px;
-        flex-shrink: 0;
-        transition: all 0.15s ease;
+        transition: background 0.15s ease, color 0.15s ease;
     }
 
     .pill-label {
@@ -316,43 +360,46 @@
 
     .service-pill:hover {
         background: var(--bg-tertiary);
-        border-color: var(--border-strong);
         color: var(--text-secondary);
     }
 
     .service-pill.active {
-        background: var(--accent-soft);
-        border-color: var(--accent-border);
-        color: var(--accent);
-    }
-
-    .service-pill.active[style] {
-        background: color-mix(in srgb, var(--pill-color) 15%, transparent);
-        border-color: color-mix(in srgb, var(--pill-color) 40%, transparent);
-        color: var(--pill-color);
-    }
-
-    .pill-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        flex-shrink: 0;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
     }
 
     .pill-count {
-        background: var(--bg-tertiary);
         color: var(--text-muted);
-        padding: 1px 6px;
-        border-radius: 10px;
         font-size: 11px;
         font-weight: 600;
-        min-width: 18px;
-        text-align: center;
+        flex-shrink: 0;
     }
 
     .service-pill.active .pill-count {
-        background: var(--accent-soft-strong);
+        color: var(--pill-color);
+    }
+
+    /* Assigned-to-me pill — cross-service, styled with the accent color */
+    .pill-icon {
+        flex-shrink: 0;
+    }
+
+    .assigned-pill.active {
+        background: var(--accent-soft);
         color: var(--accent);
+    }
+
+    .assigned-pill.active .pill-count {
+        color: var(--accent);
+    }
+
+    /* Separator between the Assigned pill and the service pills */
+    .pill-divider {
+        flex: 0 0 auto;
+        width: 1px;
+        align-self: stretch;
+        margin: 2px 2px;
+        background: var(--border);
     }
 
 </style>

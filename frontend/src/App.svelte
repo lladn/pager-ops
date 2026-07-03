@@ -61,6 +61,7 @@
     
     function handleSort(event: CustomEvent) {
         sortBy = event.detail;
+        activeServiceFilter.set('all'); // reset service tab filter when sort changes
     }
 </script>
 
