@@ -23,7 +23,10 @@
 
     $: incidents = type === 'open' ? $openIncidents : $resolvedIncidents;
     $: filteredIncidents = filterIncidents(incidents, searchQuery);
-    $: sortedIncidents = sortIncidents(filteredIncidents, sortBy);
+    // In service mode with no specific service pill selected, fall back to the
+    // default time sort (latest → old) so the list is never in arbitrary order.
+    $: effectiveSort = (sortBy === 'service' && $activeServiceFilter === 'all') ? 'time' : sortBy;
+    $: sortedIncidents = sortIncidents(filteredIncidents, effectiveSort);
     $: isActive = $activeTab === type;
 
     // Derive the unique service aliases present in the current incident list
@@ -99,7 +102,10 @@
                 return sorted.sort((a, b) => {
                     const serviceA = a.service_summary || '';
                     const serviceB = b.service_summary || '';
-                    return serviceA.localeCompare(serviceB);
+                    const byService = serviceA.localeCompare(serviceB);
+                    if (byService !== 0) return byService;
+                    // Within the same service, keep latest → old.
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
                 });
             case 'alerts':
                 return sorted.sort((a, b) => {
