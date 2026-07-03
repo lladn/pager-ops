@@ -30,6 +30,10 @@ type IncidentData struct {
 	AlertCount     int       `json:"alert_count"`
 	Urgency        string    `json:"urgency"`
 	AcknowledgedBy string    `json:"acknowledged_by"`
+	// AssignedToMe is a transient, read-time flag (not persisted). It marks
+	// incidents currently assigned to the logged-in user so the UI can offer an
+	// "Assigned" filter that spans services, including unconfigured ones.
+	AssignedToMe bool `json:"assigned_to_me"`
 }
 
 // SidebarAlert represents alert data stored in database
