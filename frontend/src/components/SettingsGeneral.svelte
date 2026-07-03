@@ -4,7 +4,7 @@
         availableSounds, 
         loadNotificationConfig, 
         loadAvailableSounds } from '../stores/notifications';
-    import { assignedFilterEnabled, staleThresholdMinutes, STALE_THRESHOLD_OPTIONS } from '../stores/incidents';
+    import { assignedFilterEnabled, staleThresholdMinutes, STALE_THRESHOLD_OPTIONS, showServicePills } from '../stores/incidents';
     import { theme, setTheme } from '../stores/theme';
     import { 
         ConfigureAPIKey, GetAPIKey, 
@@ -234,6 +234,23 @@
             class:active={$assignedFilterEnabled}
             on:click={toggleFilterByUser}
         >
+                <span class="toggle-slider"></span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Show Service Pills Toggle -->
+    <div class="settings-section">
+        <div class="toggle-setting">
+            <div>
+                <h3>Show Service Filter Pills</h3>
+                <p class="setting-description">Display service filter pills below the Open / Resolved tabs</p>
+            </div>
+            <button
+                class="toggle-button"
+                class:active={$showServicePills}
+                on:click={() => showServicePills.update(v => !v)}
+            >
                 <span class="toggle-slider"></span>
             </button>
         </div>
