@@ -23,6 +23,7 @@
     // Custom fields for the selected incident; each becomes its own tab.
     let customFields: CustomField[] = [];
     let fieldsIncidentId = '';
+    let fieldsLoading = false;
 
     // Load custom fields whenever the selected incident changes.
     $: if ($selectedIncident?.incident_id && $selectedIncident.incident_id !== fieldsIncidentId) {
@@ -31,6 +32,7 @@
     } else if (!$selectedIncident) {
         customFields = [];
         fieldsIncidentId = '';
+        fieldsLoading = false;
     }
 
     // If the active field tab disappears (e.g. switching incidents), fall back to Alerts.
@@ -39,9 +41,9 @@
     }
 
     async function loadCustomFields(incidentId: string) {
+        fieldsLoading = true;
         try {
             const result = await GetIncidentCustomFields(incidentId);
-            // Guard against a stale response if the incident changed mid-flight.
             if (fieldsIncidentId === incidentId) {
                 customFields = result || [];
             }
@@ -50,8 +52,29 @@
             if (fieldsIncidentId === incidentId) {
                 customFields = [];
             }
+        } finally {
+            if (fieldsIncidentId === incidentId) {
+                fieldsLoading = false;
+            }
         }
     }
+
+    // ── Runbook Status gate ───────────────────────────────────────────────────
+    // Find the Runbook Status field by display_name (case-insensitive).
+    $: runbookField = customFields.find(
+        f => f.display_name?.toLowerCase() === 'runbook status'
+    );
+    // Populated = field exists and has a non-empty saved value.
+    $: runbookPopulated = (
+        runbookField != null &&
+        runbookField.value != null &&
+        String(runbookField.value).trim() !== ''
+    );
+    // Block resolve while fields are loading OR runbook field exists but is unpopulated.
+    $: resolveBlocked = fieldsLoading || (runbookField != null && !runbookPopulated);
+    $: resolveBlockReason = fieldsLoading
+        ? 'Loading field status…'
+        : 'Set and save Runbook Status before resolving';
 
     // Replace a single field in place after it's saved, so its value/saved-state stays in sync.
     function handleFieldSaved(event: CustomEvent<CustomField>) {
@@ -115,16 +138,14 @@
     
     async function handleResolve(event: MouseEvent) {
         event.stopPropagation();
-        
-        if (resolving || !$selectedIncident) return;
-        
+
+        if (resolving || !$selectedIncident || resolveBlocked) return;
+
         resolving = true;
-        
+
         try {
             await ResolveIncident($selectedIncident.incident_id);
             console.log(`Incident ${$selectedIncident.incident_id} resolved successfully`);
-            
-            
         } catch (err) {
             console.error('Failed to resolve incident:', err);
             alert(`Failed to resolve incident: ${err}`);
@@ -167,9 +188,10 @@
                             <button 
                                 class="resolve-button" 
                                 class:loading={resolving}
+                                class:blocked={resolveBlocked}
                                 on:click={handleResolve}
-                                disabled={resolving}
-                                title="Resolve incident"
+                                disabled={resolving || resolveBlocked}
+                                title={resolveBlocked ? resolveBlockReason : 'Resolve incident'}
                             >
                                 {#if resolving}
                                     <span class="spinner"></span>
@@ -181,6 +203,15 @@
                         {/if}
                     </div>
                 </div>
+                {#if $activeTab === 'open' && $selectedIncident.status !== 'resolved' && resolveBlocked && !fieldsLoading}
+                    <div class="runbook-warning">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        Set and save <strong>Runbook Status</strong> before resolving
+                    </div>
+                {/if}
             </div>
             
             <!-- Tab Navigation -->
@@ -373,9 +404,39 @@
         opacity: 0.6;
         cursor: not-allowed;
     }
+
+    .resolve-button.blocked {
+        background: var(--bg-tertiary);
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        cursor: not-allowed;
+        opacity: 1;
+    }
     
     .resolve-button.loading {
         background: var(--text-tertiary);
+    }
+
+    .runbook-warning {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 6px 10px;
+        background: var(--warning-soft, rgba(234, 179, 8, 0.1));
+        border: 1px solid var(--warning-border, rgba(234, 179, 8, 0.3));
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--warning-text, #b45309);
+    }
+
+    .runbook-warning svg {
+        flex-shrink: 0;
+        stroke: currentColor;
+    }
+
+    .runbook-warning strong {
+        font-weight: 600;
     }
     
     .spinner {
