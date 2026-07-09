@@ -12,7 +12,8 @@
     } from './stores/incidents';
     import { initializeNotificationListeners, loadNotificationConfig, loadAvailableSounds } from './stores/notifications';
     import { theme, setTheme } from './stores/theme';
-    import { GetTheme } from '../wailsjs/go/main/App';
+    import { setColorTheme, COLOR_THEME_OPTIONS, type ColorThemeName } from './stores/colorTheme';
+    import { GetTheme, GetColorTheme } from '../wailsjs/go/main/App';
     
     import ToolBar from './components/ToolBar.svelte';
     import Header from './components/Header.svelte';
@@ -35,7 +36,16 @@
         } catch (err) {
             console.error('Failed to load theme preference:', err);
         }
-        
+
+        try {
+            const savedColorTheme = await GetColorTheme();
+            if (COLOR_THEME_OPTIONS.some((option) => option.value === savedColorTheme)) {
+                setColorTheme(savedColorTheme as ColorThemeName);
+            }
+        } catch (err) {
+            console.error('Failed to load color theme preference:', err);
+        }
+
         await Promise.all([
             loadOpenIncidents(),
             loadResolvedIncidents(),

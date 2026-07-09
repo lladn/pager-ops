@@ -6,12 +6,13 @@
         loadAvailableSounds } from '../stores/notifications';
     import { assignedFilterEnabled, staleThresholdMinutes, STALE_THRESHOLD_OPTIONS } from '../stores/incidents';
     import { theme, setTheme } from '../stores/theme';
-    import { 
-        ConfigureAPIKey, GetAPIKey, 
-        GetFilterByUser, SetFilterByUser, 
-        SetNotificationEnabled, SetNotificationSound, TestNotificationSound, 
-        SnoozeNotificationSound, UnsnoozeNotificationSound, IsNotificationSnoozed, 
-        SetBrowserRedirect, GetBrowserRedirect, SetTheme
+    import { colorTheme, setColorTheme, ACCENT_COLOR_OPTIONS, FULL_THEME_OPTIONS, type ColorThemeName } from '../stores/colorTheme';
+    import {
+        ConfigureAPIKey, GetAPIKey,
+        GetFilterByUser, SetFilterByUser,
+        SetNotificationEnabled, SetNotificationSound, TestNotificationSound,
+        SnoozeNotificationSound, UnsnoozeNotificationSound, IsNotificationSnoozed,
+        SetBrowserRedirect, GetBrowserRedirect, SetTheme, SetColorTheme
     } from '../../wailsjs/go/main/App';
     import { onMount } from 'svelte';
     
@@ -59,6 +60,15 @@
             await SetTheme(value);
         } catch (err) {
             console.error('Failed to persist theme setting:', err);
+        }
+    }
+
+    async function selectColorTheme(value: ColorThemeName) {
+        setColorTheme(value);
+        try {
+            await SetColorTheme(value);
+        } catch (err) {
+            console.error('Failed to persist color theme setting:', err);
         }
     }
     
@@ -203,8 +213,42 @@
                 Dark
             </button>
         </div>
+
+        <p class="setting-description color-theme-label">Accent color</p>
+        <div class="color-theme-group">
+            {#each ACCENT_COLOR_OPTIONS as option}
+                <button
+                    class="color-swatch"
+                    class:active={$colorTheme === option.value}
+                    style="--swatch-color: {option.swatch}"
+                    on:click={() => selectColorTheme(option.value)}
+                    type="button"
+                    title={option.label}
+                    aria-label={option.label}
+                ></button>
+            {/each}
+        </div>
     </div>
-    
+
+    <!-- Full App Themes Section -->
+    <div class="settings-section">
+        <h3>Theme</h3>
+        <p class="setting-description">Give the whole app a distinct look &mdash; each theme adapts to Light/Dark above</p>
+        <div class="full-theme-grid">
+            {#each FULL_THEME_OPTIONS as option}
+                <button
+                    class="full-theme-option"
+                    class:active={$colorTheme === option.value}
+                    on:click={() => selectColorTheme(option.value)}
+                    type="button"
+                >
+                    <span class="full-theme-swatch" style="--swatch-color: {option.swatch}"></span>
+                    <span class="full-theme-label">{option.label}</span>
+                </button>
+            {/each}
+        </div>
+    </div>
+
     <!-- API Key Section -->
     <div class="settings-section">
         <h3>API Key</h3>
@@ -406,6 +450,86 @@
     .theme-option.active {
         background: var(--accent-soft);
         border-color: var(--accent);
+        color: var(--accent);
+    }
+
+    .color-theme-label {
+        margin-top: 16px;
+    }
+
+    .color-theme-group {
+        display: flex;
+        gap: 10px;
+    }
+
+    .color-swatch {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        background: var(--swatch-color);
+        cursor: pointer;
+        padding: 0;
+        box-shadow: inset 0 0 0 1px var(--border);
+        transition: all 0.2s;
+    }
+
+    .color-swatch:hover {
+        transform: scale(1.08);
+    }
+
+    .color-swatch.active {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent);
+    }
+
+    .full-theme-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .full-theme-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--bg-input);
+        cursor: pointer;
+        transition: all 0.2s;
+        overflow: hidden;
+    }
+
+    .full-theme-option:hover {
+        border-color: var(--text-muted);
+    }
+
+    .full-theme-option.active {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+    }
+
+    .full-theme-swatch {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--swatch-color);
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+    }
+
+    .full-theme-label {
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .full-theme-option.active .full-theme-label {
         color: var(--accent);
     }
 
