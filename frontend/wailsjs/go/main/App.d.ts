@@ -16,6 +16,8 @@ export function GetAvailableSounds():Promise<Array<string>>;
 
 export function GetBrowserRedirect():Promise<boolean>;
 
+export function GetColorTheme():Promise<string>;
+
 export function GetFilterByUser():Promise<boolean>;
 
 export function GetIncidentCustomFieldValues(arg1:string):Promise<Array<store.CustomFieldValue>>;
@@ -51,6 +53,8 @@ export function RemoveServicesConfig():Promise<void>;
 export function ResolveIncident(arg1:string):Promise<void>;
 
 export function SetBrowserRedirect(arg1:boolean):Promise<void>;
+
+export function SetColorTheme(arg1:string):Promise<void>;
 
 export function SetFilterByUser(arg1:boolean):Promise<void>;
 

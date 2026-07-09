@@ -26,6 +26,10 @@ export function GetBrowserRedirect() {
   return window['go']['main']['App']['GetBrowserRedirect']();
 }
 
+export function GetColorTheme() {
+  return window['go']['main']['App']['GetColorTheme']();
+}
+
 export function GetFilterByUser() {
   return window['go']['main']['App']['GetFilterByUser']();
 }
@@ -96,6 +100,10 @@ export function ResolveIncident(arg1) {
 
 export function SetBrowserRedirect(arg1) {
   return window['go']['main']['App']['SetBrowserRedirect'](arg1);
+}
+
+export function SetColorTheme(arg1) {
+  return window['go']['main']['App']['SetColorTheme'](arg1);
 }
 
 export function SetFilterByUser(arg1) {

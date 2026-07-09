@@ -751,6 +751,66 @@ func (a *App) GetTheme() string {
 	return value
 }
 
+var validColorThemes = map[string]bool{
+	"default": true,
+	"purple":  true,
+	"blue":    true,
+	"green":   true,
+	"orange":  true,
+	"pink":    true,
+
+	// Full app themes: these override the entire surface/text/accent
+	// palette (not just the accent color), with light and dark variants.
+	"stormy-morning":  true,
+	"blue-eclipse":    true,
+	"lush-forest":     true,
+	"green-juice":     true,
+	"wisteria-bloom":  true,
+	"lavender-fields": true,
+	"golden-hour":     true,
+	"pistachio-dream": true,
+	"electropop":      true,
+	"neon-noir":       true,
+	"yacht-club":      true,
+	"honeycomb":       true,
+}
+
+// SetColorTheme persists the UI accent color theme preference.
+func (a *App) SetColorTheme(colorTheme string) error {
+	if !validColorThemes[colorTheme] {
+		return fmt.Errorf("invalid color theme: %s", colorTheme)
+	}
+
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	if err := a.db.SetState("color_theme", colorTheme); err != nil {
+		if a.logger != nil {
+			a.logger.Error(fmt.Sprintf("Failed to persist color theme setting: %v", err))
+		}
+		return err
+	}
+
+	if a.logger != nil {
+		a.logger.Info(fmt.Sprintf("Color theme set to: %s", colorTheme))
+	}
+	return nil
+}
+
+// GetColorTheme returns the persisted UI accent color theme, defaulting to "default".
+func (a *App) GetColorTheme() string {
+	if a.db == nil {
+		return "default"
+	}
+
+	value, err := a.db.GetState("color_theme")
+	if err != nil || value == "" {
+		return "default"
+	}
+	return value
+}
+
 func (a *App) StartPolling() {
 	a.pollMu.Lock()
 	defer a.pollMu.Unlock()
